@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional, Union
+from pydantic import BaseModel, Field
 from app.crud import crud_resume
 from app.schemas.ResumeSchemas import ResumeResponse, ResumeListResponse, ResumeSingleResponse
 from app.db.session import get_db
@@ -10,8 +11,21 @@ from app.services.resume_normalization import (
     normalize_projects,
     normalize_personal_info,
 )
+from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
 
 router = APIRouter()
+
+
+class StrategicResumeRequest(BaseModel):
+    resume_id: str
+    job_description_url: str
+
+
+class StrategicResumeResponse(BaseModel):
+    status: int
+    message: str
+    # Use Union to allow multiple types, including dict, list, string, or None
+    data: Optional[Union[Dict[str, Any], List[Any], str]] = None
 
 
 # normalization helpers moved to app.services.resume_normalization
@@ -67,3 +81,41 @@ def read_resume(resume_id: str, db: Session = Depends(get_db)):
     }
 
     return {"status": 200, "message": "Resume returned successfully", "data": item}
+
+
+@router.post("/strategic-analysis", response_model=StrategicResumeResponse)
+async def strategic_resume_analysis(
+    request: StrategicResumeRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Analyze a resume strategically against a job description using AI agents.
+    
+    This endpoint uses Google ADK agents to:
+    - Parse and analyze the resume content
+    - Extract relevant information from the job description URL
+    - Match relevant experience, skills, and projects
+    - Provide strategic recommendations for resume optimization
+    """
+    try:
+        # Validate that the resume exists
+        resume = crud_resume.get_resume(db, request.resume_id)
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        
+        # Call the strategic resume agent
+        result = await strategic_resume_agent(
+            resume_id=request.resume_id,
+            job_description_url=request.job_description_url
+        )
+        
+        return {
+            "status": 200,
+            "message": "Strategic analysis completed successfully",
+            "data": result
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

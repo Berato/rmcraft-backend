@@ -41,12 +41,13 @@ class Experience(BaseModel):
     startDate: str
     endDate: str
     responsibilities: List[str] = Field(default_factory=list)
+    
 
 
 class Education(BaseModel):
     id: str
     institution: str
-    degree: str
+    degree: Optional[str]
     startDate: str
     endDate: str
 
@@ -280,3 +281,30 @@ class JobProfileWizardStep(BaseModel):
     title: str
     subtitle: str
     component: Optional[Any] = None  # placeholder for a UI/component reference
+
+class ContactInfo(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    website: Optional[str] = None
+
+
+class ExperienceAgentOutPutSchema(BaseModel):
+    experiences: List[Experience]
+
+class SkillsAgentOutPutSchema(BaseModel):
+    skills: List[Skill]
+    additional_skills: List[str]
+
+class ProjectsAgentOutPutSchema(BaseModel):
+    projects: List[Project]
+
+class EducationAgentOutPutSchema(BaseModel):
+    education: List[Education]
+
+class ContactInfoAgentOutPutSchema(BaseModel):
+    contact_info: List[ContactInfo]
+
+class SummaryAgentOutPutSchema(BaseModel):
+    summary: str
