@@ -11,8 +11,11 @@ from pyparsing import Any
 import json
 from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
-from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
+from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema, DesignBriefOutputSchema, DesignerAgentOutputSchema
 import uuid
+from jinja2 import Environment
+from app.tools.pdf_generator import create_pdf
+from app.tools.file_uploader import upload_to_cloudinary
 
 
 
@@ -204,7 +207,13 @@ def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict]
     # Return the prepared data for Chroma insertion (caller will insert)
     return documents, metadatas, ids
 
-async def strategic_resume_agent(resume_id: str, job_description_url: str):
+async def strategic_resume_agent(
+    resume_id: str,
+    job_description_url: str,
+    design_prompt: str,
+    inspiration_image_data: bytes,
+    inspiration_image_mime_type: str
+):
   # Initialize ChromaDB client
   chroma_client = chromadb.EphemeralClient()
 
@@ -389,33 +398,40 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
     tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
 
-  # Build the summary structure agent to format creative summary into JSON
-  summary_structure_agent = LlmAgent(
-    model="gemini-2.5-flash",
-    name="summary_structure_agent",
-    description="Extract and format summary data into clean JSON structure.",
+  # NEW AGENT 1: The Creative Director
+  brief_agent = LlmAgent(
+    model="gemini-2.5-flash", # A multimodal model is REQUIRED for image analysis
+    name="brief_agent",
+    description="Analyzes a text prompt and an inspiration image to create a detailed design brief.",
     instruction=(
-      "You are a JSON formatting specialist. Your task is to analyze the resume and job description data and return ONLY a valid JSON object. "
-      "Use the resume_query_tool and job_description_query_tool to gather the same information that the creative agent would use. "
-      "CRITICAL REQUIREMENTS: "
-      "- Return ONLY the JSON object with NO additional text, explanations, markdown, or formatting. "
-      "- Do NOT include any markdown code blocks (```json or ```). "
-      "- Do NOT include any headers, comments, or explanatory text. "
-      "- Do NOT use triple backticks or any other markdown syntax. "
-      "- Start your response directly with the opening brace { and end with the closing brace }. "
-      "The JSON structure must be exactly: {\"summary\": \"your summary text here\"}. "
-      "Do NOT include any markdown code blocks, headers, or explanatory text. "
-      "Start your response directly with the opening brace { and end with the closing brace }."
+      "You are an expert Creative Director. Analyze the user's text prompt and the "
+      "provided inspiration image. Generate a detailed, structured JSON design brief. "
+      "This brief MUST include: a description of the layout, a color palette with hex codes "
+      "extracted from the image, a list of specific Google Fonts that closely match "
+      "the typography, and a final concise `design_prompt_for_developer` for the next agent."
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
-    output_schema=SummaryAgentOutPutSchema,
-    output_key="summary",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
-    ),  # Minimal thinking config for pure formatting
-    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],  # Give access to same tools
+    output_schema=DesignBriefOutputSchema,
+    output_key="design_brief",
   )
-  
+
+  # NEW AGENT 2: The UI Developer
+  designer_agent = LlmAgent(
+    model="gemini-2.5-flash",
+    name="designer_agent",
+    description="""Generates a Jinja2 template and CSS stylesheet based on a detailed design brief.
+    DESIGN BRIEF:
+    {design_brief}
+    """,
+    instruction=(
+      "You are an expert front-end developer. Your task is to execute the provided "
+      "JSON design brief to generate a Jinja2 template and the corresponding CSS. "
+      "Use the layout, colors, and fonts from the brief to create the theme. "
+      "Ensure you include the specified Google Fonts using an `@import` rule at the top of the CSS. "
+      "Your response MUST be ONLY a valid JSON object containing 'jinja_template' and 'css_styles' keys."
+    ),
+    output_schema=DesignerAgentOutputSchema,
+  )
+
   # Run analysis agents in parallel (experience, skills, projects)
   resume_analysis_agent = ParallelAgent(
     name="resume_analysis_agent",
@@ -427,9 +443,14 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
     ]
   )
   full_workflow = SequentialAgent(
-    name="resume_analysis_workflow_agent",
-    sub_agents=[resume_analysis_agent, summary_agent],
-    description="Complete resume analysis workflow with parallel execution and creative summary"
+    name="full_resume_workflow",
+    sub_agents=[
+        resume_analysis_agent,
+        summary_agent,
+        brief_agent,      # NEW agent in the sequence
+        designer_agent
+    ],
+    description="Complete resume analysis, summary, creative brief, and design workflow."
   )
 
   # Create a session and run the agent
@@ -438,7 +459,20 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
   session = await session_service.create_session(app_name="resume_rewrite", user_id="user_123", session_id=session_id)
   runner = Runner(agent=full_workflow, session_service=session_service, app_name="resume_rewrite")
 
-  content = types.Content(role='user', parts=[types.Part(text=f"Analyze resume {resume_id} and job description {job_description_url} and return JSON of relevant experiences, projects, and skills.")])
+  content = types.Content(
+      role='user',
+      parts=[
+          types.Part(text=(
+              f"1. First, perform the strategic analysis for resume {resume_id} against job url {job_description_url}. "
+              f"2. Next, using the inspiration image provided, create a design brief based on the following prompt: '{design_prompt}'. "
+              f"3. Finally, generate the Jinja2 and CSS theme based on the brief you created."
+          )),
+          types.Part(inline_data=types.Blob(
+              mime_type=inspiration_image_mime_type,
+              data=inspiration_image_data
+          ))
+      ]
+  )
 
   # Prepare a merged final response structure that matches the agents' output schemas
   final_response = {
@@ -447,7 +481,11 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
     "projects": [],
     "education": education_data,
     "contact_info": contact_info_data,
-    "summary": ""
+    "summary": "",
+    "design_brief": {},
+    "jinja_template": "",
+    "css_styles": "",
+    "cloudinary_url": None
   }
 
   async for event in runner.run_async(new_message=content, session_id=session_id, user_id="user_123"):
@@ -514,5 +552,35 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
   final_response.setdefault("education", [])
   final_response.setdefault("contact_info", [])
   final_response.setdefault("summary", "")
+  final_response.setdefault("design_brief", {})
+  final_response.setdefault("jinja_template", "")
+  final_response.setdefault("css_styles", "")
+  final_response.setdefault("cloudinary_url", None)
+
+  # PDF Generation and Upload Logic
+  jinja_template_str = final_response.get("jinja_template")
+  css_styles_str = final_response.get("css_styles")
+
+  if jinja_template_str and css_styles_str:
+    print("🎨 Designer agent output found. Rendering and uploading PDF...")
+
+    # 1. Render HTML from Jinja2 Template
+    env = Environment()
+    template = env.from_string(jinja_template_str)
+    # The 'final_response' dict itself is the context for rendering
+    html_output = template.render(final_response)
+
+    # 2. Generate PDF locally (e.g., in a temporary directory)
+    local_pdf_path = f"/tmp/Designed_Resume_{resume_id}_{uuid.uuid4().hex[:8]}.pdf"
+    pdf_created = create_pdf(html_output, css_styles_str, local_pdf_path)
+
+    # 3. Upload PDF to Cloudinary
+    if pdf_created:
+      public_id = f"resumes/{resume_id}/{uuid.uuid4().hex}"
+      cloudinary_url = upload_to_cloudinary(local_pdf_path, public_id)
+      final_response["cloudinary_url"] = cloudinary_url
+  else:
+    print("⚠️ Designer agent output not found. Skipping PDF generation and upload.")
+    final_response["cloudinary_url"] = None
 
   return final_response

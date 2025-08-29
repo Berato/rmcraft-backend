@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Any, Dict, Optional, Union
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ router = APIRouter()
 class StrategicResumeRequest(BaseModel):
     resume_id: str
     job_description_url: str
+    design_prompt: str
 
 
 class StrategicResumeResponse(BaseModel):
@@ -86,16 +87,19 @@ def read_resume(resume_id: str, db: Session = Depends(get_db)):
 @router.post("/strategic-analysis", response_model=StrategicResumeResponse)
 async def strategic_resume_analysis(
     request: StrategicResumeRequest,
+    inspiration_image: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     """
-    Analyze a resume strategically against a job description using AI agents.
+    Analyze a resume strategically against a job description using AI agents and generate a custom PDF design.
     
     This endpoint uses Google ADK agents to:
     - Parse and analyze the resume content
     - Extract relevant information from the job description URL
     - Match relevant experience, skills, and projects
     - Provide strategic recommendations for resume optimization
+    - Generate a custom PDF design based on inspiration image and design prompt
+    - Upload the PDF to Cloudinary and return the secure URL
     """
     try:
         # Validate that the resume exists
@@ -103,15 +107,25 @@ async def strategic_resume_analysis(
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
-        # Call the strategic resume agent
+        # Read the uploaded image file
+        try:
+            inspiration_image_data = await inspiration_image.read()
+            inspiration_image_mime_type = inspiration_image.content_type
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error reading uploaded image: {str(e)}")
+        
+        # Call the strategic resume agent with new parameters
         result = await strategic_resume_agent(
             resume_id=request.resume_id,
-            job_description_url=request.job_description_url
+            job_description_url=request.job_description_url,
+            design_prompt=request.design_prompt,
+            inspiration_image_data=inspiration_image_data,
+            inspiration_image_mime_type=inspiration_image_mime_type
         )
         
         return {
             "status": 200,
-            "message": "Strategic analysis completed successfully",
+            "message": "Strategic analysis and PDF generation completed successfully",
             "data": result
         }
         

@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Literal, Dict, Union
 from datetime import datetime
 import uuid
+from enum import Enum
+from typing import Optional, List
 
 class PersonalInfo(BaseModel):
     id: str
@@ -308,3 +310,55 @@ class ContactInfoAgentOutPutSchema(BaseModel):
 
 class SummaryAgentOutPutSchema(BaseModel):
     summary: str
+
+
+class DesignBriefOutputSchema(BaseModel):
+    layout_description: str = Field(description="A detailed description of the resume layout (e.g., 'two-column, minimalist').")
+    color_palette: Dict[str, str] = Field(description="A dictionary mapping color roles (e.g., 'primary', 'accent') to hex color codes.")
+    google_fonts: List[str] = Field(description="A list of suggested Google Font names (e.g., ['Lato', 'Roboto Slab']).")
+    design_prompt_for_developer: str = Field(description="A concise, regenerated prompt for the next agent to use.")
+
+
+class DesignerAgentOutputSchema(BaseModel):
+    jinja_template: str = Field(description="A complete Jinja2 template string for the resume.")
+    css_styles: str = Field(description="A complete CSS string to style the resume.")
+    
+    
+class CoverLetterTone(str, Enum):
+    PROFESSIONAL = "professional"
+    CREATIVE = "creative"
+    ENTHUSIASTIC = "enthusiastic"
+    FORMAL = "formal"
+
+
+class ThemeType(str, Enum):
+    RESUME = "RESUME"
+    COVER_LETTER = "COVER_LETTER"
+
+
+class Theme(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    type: ThemeType
+    template: str
+    styles: str
+    previewImageUrl: Optional[str] = None
+    createdAt: datetime
+    updatedAt: datetime
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
+
+
+class ThemePackage(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    coverLetterTemplateId: str
+    resumeTemplateId: str
+    createdAt: datetime
+    updatedAt: datetime
+    coverLetterTemplate: Optional[Theme] = None
+    resumeTemplate: Optional[Theme] = None
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
