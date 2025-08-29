@@ -9,17 +9,24 @@ def test_strategic_endpoint_comprehensive():
     url = "http://localhost:8000/api/v1/resumes/strategic-analysis"
     
     # Test 1: Valid request structure (even with non-existent resume)
-    test_data = {
+    form_data = {
         "resume_id": "test-resume-123",
-        "job_description_url": "https://example.com/job-posting"
+        "job_description_url": "https://example.com/job-posting",
+        "design_prompt": "Create a modern, clean resume design"
+    }
+    
+    # Create a simple test image (1x1 pixel PNG)
+    test_image_content = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\tpHYs\x00\x00\x0b\x13\x00\x00\x0b\x13\x01\x00\x9a\x9c\x18\x00\x00\x00\nIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
+    files = {
+        "inspiration_image": ("test_image.png", test_image_content, "image/png")
     }
     
     print("🧪 Testing strategic analysis endpoint...")
     print(f"📡 Sending request to: {url}")
-    print(f"📋 Request data: {test_data}")
+    print(f"📋 Request data: {form_data}")
     
     try:
-        response = requests.post(url, json=test_data)
+        response = requests.post(url, data=form_data, files=files)
         print(f"📊 Status Code: {response.status_code}")
         
         # Parse response

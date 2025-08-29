@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Any, Dict, Optional, Union
 from pydantic import BaseModel, Field
+import json
 from app.crud import crud_resume
 from app.schemas.ResumeSchemas import ResumeResponse, ResumeListResponse, ResumeSingleResponse
 from app.db.session import get_db
@@ -16,17 +17,17 @@ from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_
 router = APIRouter()
 
 
-class StrategicResumeRequest(BaseModel):
-    resume_id: str
-    job_description_url: str
-    design_prompt: str
-
-
 class StrategicResumeResponse(BaseModel):
     status: int
     message: str
     # Use Union to allow multiple types, including dict, list, string, or None
     data: Optional[Union[Dict[str, Any], List[Any], str]] = None
+
+
+class StrategicResumeRequest(BaseModel):
+    resume_id: str = Field(..., description="The ID of the resume to analyze")
+    job_description_url: str = Field(..., description="URL of the job description to analyze against")
+    design_prompt: str = Field(..., description="Design prompt for the resume customization")
 
 
 # normalization helpers moved to app.services.resume_normalization
@@ -86,7 +87,9 @@ def read_resume(resume_id: str, db: Session = Depends(get_db)):
 
 @router.post("/strategic-analysis", response_model=StrategicResumeResponse)
 async def strategic_resume_analysis(
-    request: StrategicResumeRequest,
+    resume_id: str = Form(...),
+    job_description_url: str = Form(...),
+    design_prompt: str = Form(...),
     inspiration_image: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -102,8 +105,15 @@ async def strategic_resume_analysis(
     - Upload the PDF to Cloudinary and return the secure URL
     """
     try:
+        # Validate form data using Pydantic model
+        request_data = StrategicResumeRequest(
+            resume_id=resume_id,
+            job_description_url=job_description_url,
+            design_prompt=design_prompt
+        )
+        
         # Validate that the resume exists
-        resume = crud_resume.get_resume(db, request.resume_id)
+        resume = crud_resume.get_resume(db, resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
@@ -116,9 +126,9 @@ async def strategic_resume_analysis(
         
         # Call the strategic resume agent with new parameters
         result = await strategic_resume_agent(
-            resume_id=request.resume_id,
-            job_description_url=request.job_description_url,
-            design_prompt=request.design_prompt,
+            resume_id=resume_id,
+            job_description_url=job_description_url,
+            design_prompt=design_prompt,
             inspiration_image_data=inspiration_image_data,
             inspiration_image_mime_type=inspiration_image_mime_type
         )

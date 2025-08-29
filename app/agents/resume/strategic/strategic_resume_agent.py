@@ -53,6 +53,28 @@ def clean_json_response(raw_text: str) -> str:
   return text
 
 
+def validate_json_response(text: str, expected_keys: list = None) -> tuple[bool, str]:
+  """
+  Validate that the response is proper JSON and contains expected keys.
+  Returns (is_valid, error_message)
+  """
+  try:
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+      return False, "Response is not a JSON object"
+
+    if expected_keys:
+      missing_keys = [key for key in expected_keys if key not in parsed]
+      if missing_keys:
+        return False, f"Missing expected keys: {missing_keys}"
+
+    return True, ""
+  except json.JSONDecodeError as e:
+    return False, f"Invalid JSON: {str(e)}"
+  except Exception as e:
+    return False, f"Unexpected error: {str(e)}"
+
+
 async def fetch_jd_chunks(url: str, tool_context: object | None = None) -> dict:
   """Fetch and return job-description chunks for a given URL.
 
@@ -76,6 +98,10 @@ search_agent = LlmAgent(
     "You are a search specialist agent. When given a search query, use the google_search tool to find relevant information. "
     "Return the search results in a clear, structured format that other agents can easily use. "
     "Focus on providing factual, current information from reliable sources."
+  ),
+  generate_content_config=types.GenerateContentConfig(
+    temperature=0.1,
+    response_mime_type="application/json"
   ),
   tools=[google_search],
 )
@@ -277,7 +303,7 @@ async def strategic_resume_agent(
 
   # Build the experience-analysis agent with creative analysis focus
   experience_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="experience_agent",
     description="Analyze resume + job description and extract relevant experience with creative insights and JSON output.",
     instruction=(
@@ -286,7 +312,10 @@ async def strategic_resume_agent(
       "Return this exact structure: {\"experiences\": [{\"id\": \"exp_1\", \"company\": \"Company Name\", \"position\": \"Job Title\", \"startDate\": \"2020-01\", \"endDate\": \"Present\", \"responsibilities\": [\"Responsibility 1\", \"Responsibility 2\"]}]} "
       "Use resume_query_tool to get experience data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
     planner=BuiltInPlanner(
@@ -297,7 +326,7 @@ async def strategic_resume_agent(
 
     # Build the summary structure agent to format creative summary into JSON
   summary_structure_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="summary_structure_agent",
     description="Extract and format summary data into clean JSON structure.",
     instruction=(
@@ -313,7 +342,10 @@ async def strategic_resume_agent(
       "Do NOT include any markdown code blocks, headers, or explanatory text. "
       "Start your response directly with the opening brace { and end with the closing brace }."
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
     planner=BuiltInPlanner(
@@ -323,16 +355,20 @@ async def strategic_resume_agent(
   )
 
   skills_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="skills_agent",
     description="Analyze resume + job description and extract relevant skills with strategic insights and JSON output.",
     instruction=(
       "You are an expert skills strategist. Analyze the resume and job description data. "
-      "Your response must be ONLY a valid JSON object - no text before or after. "
-      "Return this exact structure: {\"skills\": [{\"id\": \"skill_1\", \"name\": \"Skill Name\", \"level\": 3}], \"additional_skills\": [\"Basic Skill 1\", \"Basic Skill 2\"]} "
-      "Use resume_query_tool to get skills data. Start your response with { and end with }"
+      "CRITICAL: Your response must be ONLY a valid JSON object with NO additional text, explanations, or markdown formatting. "
+      "Do NOT include any text before or after the JSON. Do NOT use markdown code blocks. Do NOT explain your response. "
+      "Return ONLY this exact JSON structure: {\"skills\": [{\"id\": \"skill_1\", \"name\": \"Skill Name\", \"level\": 3}], \"additional_skills\": [\"Basic Skill 1\", \"Basic Skill 2\"]} "
+      "Use resume_query_tool to get skills data. Your response must start with { and end with }. No other characters."
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
     planner=BuiltInPlanner(
@@ -342,7 +378,7 @@ async def strategic_resume_agent(
   )
 
   projects_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="projects_agent",
     description="Analyze resume + job description and extract relevant projects with creative insights and JSON output.",
     instruction=(
@@ -351,7 +387,10 @@ async def strategic_resume_agent(
       "Return this exact structure: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project Name\", \"description\": \"Project description\", \"url\": \"https://example.com\"}]} "
       "Use resume_query_tool to get project data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
     planner=BuiltInPlanner(
@@ -362,7 +401,7 @@ async def strategic_resume_agent(
 
   # Build the projects structure agent to format creative analysis into JSON
   projects_structure_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="projects_structure_agent",
     description="Extract and format projects data into clean JSON structure.",
     instruction=(
@@ -370,7 +409,10 @@ async def strategic_resume_agent(
       "Return: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project\", \"description\": \"Description\", \"url\": \"https://example.com\"}]} "
       "Use resume_query_tool to get data. Start with { end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.0),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.0,
+      response_mime_type="application/json"
+    ),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
     planner=BuiltInPlanner(
@@ -380,7 +422,7 @@ async def strategic_resume_agent(
   )
   
   summary_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="summary_agent",
     description="Write a creative, compelling professional summary for the resume with JSON output.",
     instruction=(
@@ -389,7 +431,10 @@ async def strategic_resume_agent(
       "Return this exact structure: {\"summary\": \"your complete summary text here\"} "
       "Use resume_query_tool to get summary data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
     planner=BuiltInPlanner(
@@ -400,7 +445,7 @@ async def strategic_resume_agent(
 
   # NEW AGENT 1: The Creative Director
   brief_agent = LlmAgent(
-    model="gemini-2.5-flash", # A multimodal model is REQUIRED for image analysis
+    model="gemini-2.0-flash",
     name="brief_agent",
     description="Analyzes a text prompt and an inspiration image to create a detailed design brief.",
     instruction=(
@@ -410,13 +455,17 @@ async def strategic_resume_agent(
       "extracted from the image, a list of specific Google Fonts that closely match "
       "the typography, and a final concise `design_prompt_for_developer` for the next agent."
     ),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
+    ),
     output_schema=DesignBriefOutputSchema,
     output_key="design_brief",
   )
 
   # NEW AGENT 2: The UI Developer
   designer_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     name="designer_agent",
     description="""Generates a Jinja2 template and CSS stylesheet based on a detailed design brief.
     DESIGN BRIEF:
@@ -428,6 +477,10 @@ async def strategic_resume_agent(
       "Use the layout, colors, and fonts from the brief to create the theme. "
       "Ensure you include the specified Google Fonts using an `@import` rule at the top of the CSS. "
       "Your response MUST be ONLY a valid JSON object containing 'jinja_template' and 'css_styles' keys."
+    ),
+    generate_content_config=types.GenerateContentConfig(
+      temperature=0.1,
+      response_mime_type="application/json"
     ),
     output_schema=DesignerAgentOutputSchema,
   )
@@ -522,6 +575,21 @@ async def strategic_resume_agent(
           cleaned_text = clean_json_response(raw_text)
           print(f"\n Cleaned Agent Response: {cleaned_text}")
 
+          # Validate the JSON response
+          expected_keys = None
+          if output_key == "skills":
+            expected_keys = ["skills", "additional_skills"]
+          elif output_key == "experiences":
+            expected_keys = ["experiences"]
+          elif output_key == "projects":
+            expected_keys = ["projects"]
+          elif output_key == "summary":
+            expected_keys = ["summary"]
+
+          is_valid, error_msg = validate_json_response(cleaned_text, expected_keys)
+          if not is_valid:
+            raise ValueError(f"JSON validation failed: {error_msg}")
+
           parsed = json.loads(cleaned_text)
           # Merge top-level keys into final_response when possible
           if isinstance(parsed, dict):
@@ -534,10 +602,37 @@ async def strategic_resume_agent(
               final_response["experiences"] = parsed
             else:
               final_response["experiences"] = [parsed]
-        except Exception as e:
-          print(f"\n JSON parsing failed: {e}")
+        except json.JSONDecodeError as e:
+          print(f"\n❌ JSON parsing failed for {output_key}: {e}")
           print(f"Raw response was: {raw_text}")
           print(f"Cleaned response was: {cleaned_text}")
+          # Provide better fallback values based on the expected output_key
+          if output_key == "skills":
+            final_response[output_key] = {"skills": [], "additional_skills": []}
+            print(f"✅ Set fallback empty skills structure for {output_key}")
+          elif output_key == "experiences":
+            final_response[output_key] = []
+            print(f"✅ Set fallback empty list for {output_key}")
+          elif output_key == "projects":
+            final_response[output_key] = []
+            print(f"✅ Set fallback empty list for {output_key}")
+          elif output_key == "summary":
+            final_response[output_key] = "Professional with relevant experience in the field."
+            print(f"✅ Set fallback summary for {output_key}")
+          elif output_key == "contact_info":
+            final_response[output_key] = []
+            print(f"✅ Set fallback empty list for {output_key}")
+          elif output_key == "education":
+            final_response[output_key] = []
+            print(f"✅ Set fallback empty list for {output_key}")
+          elif output_key == "design_brief":
+            final_response[output_key] = {}
+            print(f"✅ Set fallback empty dict for {output_key}")
+          else:
+            print(f"⚠️ No fallback defined for {output_key}")
+        except Exception as e:
+          print(f"\n❌ Unexpected error processing {output_key}: {e}")
+          print(f"Raw response was: {raw_text}")
           # For contact_info, return empty list if parsing fails
           if output_key == "contact_info":
             final_response[output_key] = []
