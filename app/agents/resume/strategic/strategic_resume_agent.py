@@ -2,7 +2,7 @@ from google.adk.agents import ParallelAgent, SequentialAgent
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import google_search
+from google.adk.tools import FunctionTool, google_search, agent_tool
 from google.genai import types
 from google.adk.planners import BuiltInPlanner
 
@@ -13,6 +13,72 @@ from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
 from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
 import uuid
+
+
+
+
+
+def clean_json_response(raw_text: str) -> str:
+  """
+  Clean raw LLM response by removing markdown formatting and extracting pure JSON.
+  Handles cases where LLM returns JSON wrapped in markdown code blocks.
+  """
+  if not raw_text:
+    return raw_text
+
+  # Remove markdown code block markers
+  text = raw_text.strip()
+  if text.startswith('```json'):
+    text = text[7:]
+  elif text.startswith('```'):
+    text = text[3:]
+
+  if text.endswith('```'):
+    text = text[:-3]
+
+  # Remove any leading/trailing whitespace and newlines
+  text = text.strip()
+
+  # If the text starts with markdown headers or explanatory text, try to find JSON
+  if not text.startswith('{'):
+    # Look for JSON object in the text
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+      text = text[start_idx:end_idx + 1]
+
+  return text
+
+
+async def fetch_jd_chunks(url: str, tool_context: object | None = None) -> dict:
+  """Fetch and return job-description chunks for a given URL.
+
+  This wrapper calls the repo's async `get_url_contents` helper and returns a
+  dict with status and chunks so it is easy for agents to consume.
+  """
+  chunks = await get_url_contents(url)
+  return {"status": "success", "chunks": chunks, "source": url}
+
+
+# FunctionTool instance agents can call inside sub-agents (allowed by ADK)
+fetch_jd_tool = FunctionTool(func=fetch_jd_chunks)
+
+
+# Create a dedicated search agent using built-in google_search (root-level only)
+search_agent = LlmAgent(
+  model="gemini-2.0-flash",
+  name="search_agent", 
+  description="Performs internet searches using Google Search to find current information.",
+  instruction=(
+    "You are a search specialist agent. When given a search query, use the google_search tool to find relevant information. "
+    "Return the search results in a clear, structured format that other agents can easily use. "
+    "Focus on providing factual, current information from reliable sources."
+  ),
+  tools=[google_search],
+)
+
+# Expose the search agent as an AgentTool so other agents can call it
+search_agent_tool = agent_tool.AgentTool(agent=search_agent)
 
 
 def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict], list[str]]:
@@ -97,6 +163,44 @@ def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict]
         metadatas.append({"type": "summary"})
         ids.append("main_summary_01")  # static ID for the main summary
 
+    # --- Process Education ---
+    for education in resume_json.get("education", []):
+        institution = education.get("institution", "") or ""
+        degree = education.get("degree", "") or ""
+        doc_content = f"{degree} from {institution}".strip()
+        if not doc_content or doc_content == "from":
+            continue
+        documents.append(doc_content)
+        metadatas.append({
+            "type": "education",
+            "institution": institution,
+            "degree": degree,
+            "startDate": education.get("startDate") or "Unknown",
+            "endDate": education.get("endDate") or "Unknown"
+        })
+        ids.append(education.get("id") or str(uuid.uuid4()))
+
+    # --- Process Contact Information ---
+    contact_info = resume_json.get("personalInfo", {})
+    if contact_info:
+        contact_parts = []
+        if contact_info.get("email"):
+            contact_parts.append(f"Email: {contact_info['email']}")
+        if contact_info.get("phone"):
+            contact_parts.append(f"Phone: {contact_info['phone']}")
+        if contact_info.get("linkedin"):
+            contact_parts.append(f"LinkedIn: {contact_info['linkedin']}")
+        if contact_info.get("github"):
+            contact_parts.append(f"GitHub: {contact_info['github']}")
+        if contact_info.get("website"):
+            contact_parts.append(f"Website: {contact_info['website']}")
+
+        if contact_parts:
+            contact_summary = "Contact information: " + ", ".join(contact_parts)
+            documents.append(contact_summary)
+            metadatas.append({"type": "contact_info"})
+            ids.append("contact_info_01")  # static ID for contact info
+
     # Return the prepared data for Chroma insertion (caller will insert)
     return documents, metadatas, ids
 
@@ -108,11 +212,36 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
 
   # Step 0 - Get resume parts and store them in ChromaDB
   resume = get_resume_pydantic(resume_id)
+
   if not resume:
     raise ValueError(f"Resume not found for id: {resume_id}")
 
   documents, metadatas, ids = process_resumes_for_chroma(resume.model_dump())
   resume_collection.add(documents=documents, metadatas=metadatas, ids=ids)
+
+  # Extract education and contact info directly from resume
+  education_data = resume.education if hasattr(resume, 'education') and resume.education else []
+  contact_info_data = []
+  if hasattr(resume, 'personalInfo') and resume.personalInfo:
+    # Convert personalInfo to the expected contact_info format
+    personal_info = resume.personalInfo
+    if isinstance(personal_info, dict):
+      contact_info_data = [{
+        "email": personal_info.get("email", ""),
+        "phone": personal_info.get("phone", ""),
+        "linkedin": personal_info.get("linkedin", ""),
+        "github": personal_info.get("github", ""),
+        "website": personal_info.get("website", "")
+      }]
+    elif hasattr(personal_info, 'model_dump'):
+      contact_dict = personal_info.model_dump()
+      contact_info_data = [{
+        "email": contact_dict.get("email", ""),
+        "phone": contact_dict.get("phone", ""),
+        "linkedin": contact_dict.get("linkedin", ""),
+        "github": contact_dict.get("github", ""),
+        "website": contact_dict.get("website", "")
+      }]
 
   # Step 1 - Fetch job description chunks and store in a temporary collection
   job_description_chunks = await get_url_contents(job_description_url)
@@ -137,141 +266,170 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
       jd_parts.append({"document": doc, "metadata": meta, "score": score})
     return jd_parts
 
-  # Build the experience-analysis agent with explicit JSON output instructions
+  # Build the experience-analysis agent with creative analysis focus
   experience_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="experience_agent",
-    description="Analyze resume + job description and extract relevant experience.",
+    description="Analyze resume + job description and extract relevant experience with creative insights and JSON output.",
     instruction=(
-      "You are an expert resume analyst. Analyze the resume and job description and return ONLY a valid JSON object with the structure: {\"experiences\": []}. "
-      "Each experience should have fields: id, company, position, startDate, endDate, and responsibilities (array of strings). "
-      "Rewrite the experience descriptions to be more impactful and aligned with the job description."
-      "Use the experience the best matches what the job description is asking for."
-      "Do not include any other text, explanations, or markdown - only return the JSON object."
+      "You are an expert resume strategist. Analyze the resume and job description data. "
+      "Your response must be ONLY a valid JSON object - no text before or after. "
+      "Return this exact structure: {\"experiences\": [{\"id\": \"exp_1\", \"company\": \"Company Name\", \"position\": \"Job Title\", \"startDate\": \"2020-01\", \"endDate\": \"Present\", \"responsibilities\": [\"Responsibility 1\", \"Responsibility 2\"]}]} "
+      "Use resume_query_tool to get experience data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.5),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
     output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
     ),
     tools=[resume_query_tool, job_description_query_tool],
+  )
+
+    # Build the summary structure agent to format creative summary into JSON
+  summary_structure_agent = LlmAgent(
+    model="gemini-2.5-flash",
+    name="summary_structure_agent",
+    description="Extract and format summary data into clean JSON structure.",
+    instruction=(
+      "You are a JSON formatting specialist. Your task is to analyze the resume and job description data and return ONLY a valid JSON object. "
+      "Use the resume_query_tool and job_description_query_tool to gather the same information that the creative agent would use. "
+      "CRITICAL REQUIREMENTS: "
+      "- Return ONLY the JSON object with NO additional text, explanations, markdown, or formatting. "
+      "- Do NOT include any markdown code blocks (```json or ```). "
+      "- Do NOT include any headers, comments, or explanatory text. "
+      "- Do NOT use triple backticks or any other markdown syntax. "
+      "- Start your response directly with the opening brace { and end with the closing brace }. "
+      "The JSON structure must be exactly: {\"summary\": \"your summary text here\"}. "
+      "Do NOT include any markdown code blocks, headers, or explanatory text. "
+      "Start your response directly with the opening brace { and end with the closing brace }."
+    ),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    output_schema=SummaryAgentOutPutSchema,
+    output_key="summary",
+    planner=BuiltInPlanner(
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+    ),  # Minimal thinking config for pure formatting
+    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],  # Give access to same tools
   )
 
   skills_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="skills_agent",
-    description="Analyze resume + job description and extract relevant skills.",
+    description="Analyze resume + job description and extract relevant skills with strategic insights and JSON output.",
     instruction=(
-      "You are an expert skills analyst. Analyze the resume and job description and return ONLY a valid JSON object with the structure: {\"skills\": [], \"additional_skills\": []}. "
-      "Each skill should have fields: id, name, and level (e.g., 'beginner', 'intermediate', 'expert'). "
-      "Rewrite the skill descriptions to be more impactful and aligned with the job description."
-      "Analyze all experience and projects to identify implicit skills that may not be explicitly listed but are relevant to the job description."
-      "Search online if necessary to validate skill levels and descriptions."
-      "Determine implicit skills level by analyzing projects and experience to determine how deeply the skill is embedded in the candidate's background."
-      "Use the skills that best match what the job description is asking for."
-      "Resumes have experience, skills, education, and projects sections so you can use all of them to identify relevant skills."
-      "Any skills at beginner level will be included in the `additional_skills` property"
-      "Do not include any other text, explanations, or markdown - only return the JSON object."
+      "You are an expert skills strategist. Analyze the resume and job description data. "
+      "Your response must be ONLY a valid JSON object - no text before or after. "
+      "Return this exact structure: {\"skills\": [{\"id\": \"skill_1\", \"name\": \"Skill Name\", \"level\": 3}], \"additional_skills\": [\"Basic Skill 1\", \"Basic Skill 2\"]} "
+      "Use resume_query_tool to get skills data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.5),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
     output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
     ),
-  tools=[resume_query_tool, job_description_query_tool, google_search],
+    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
-  
+
   projects_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="projects_agent",
-    description="Analyze resume + job description and extract relevant projects.",
+    description="Analyze resume + job description and extract relevant projects with creative insights and JSON output.",
     instruction=(
-      "You are an expert projects analyst. Analyze the resume and job description and return ONLY a valid JSON object with the structure: {\"projects\": []}. "
-      "Each project should have fields: id, name, description, url."
-      "Rewrite the project descriptions to be more impactful and aligned with the job description."
-      "Use the projects that best match what the job description is asking for."
-      "Do not include any other text, explanations, or markdown - only return the JSON object."
+      "You are an expert project strategist. Analyze the resume and job description data. "
+      "Your response must be ONLY a valid JSON object - no text before or after. "
+      "Return this exact structure: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project Name\", \"description\": \"Project description\", \"url\": \"https://example.com\"}]} "
+      "Use resume_query_tool to get project data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.5),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
     ),
     tools=[resume_query_tool, job_description_query_tool],
   )
-  
-  education_agent = LlmAgent(
-    model="gemini-2.5-flash",
-    name="education_agent",
-    description="Analyze resume + job description and extract relevant education.",
-    instruction=(
-      "Your only job is to extract the education information from the resume and present it in a structured format."
-    ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
-    output_schema=EducationAgentOutPutSchema,
-    output_key="education",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=256)
-    ),
-    tools=[resume_query_tool],
-  )
 
-  contact_info_agent = LlmAgent(
+  # Build the projects structure agent to format creative analysis into JSON
+  projects_structure_agent = LlmAgent(
     model="gemini-2.5-flash",
-    name="contact_info_agent",
-    description="Analyze resume + job description and extract relevant contact information.",
+    name="projects_structure_agent",
+    description="Extract and format projects data into clean JSON structure.",
     instruction=(
-      "Your only job is to extract the contact information from the resume and present it in a structured format."
+      "JSON ONLY. No text. No explanations. No markdown. "
+      "Return: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project\", \"description\": \"Description\", \"url\": \"https://example.com\"}]} "
+      "Use resume_query_tool to get data. Start with { end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.1),
-    output_schema=ContactInfoAgentOutPutSchema,
-    output_key="contact_info",
+    generate_content_config=types.GenerateContentConfig(temperature=0.0),
+    output_schema=ProjectsAgentOutPutSchema,
+    output_key="projects",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=256)
-    ),
-    tools=[resume_query_tool],
-  )
-
-  resume_analysis_agent = ParallelAgent(
-    name="resume_analysis_agent",
-    description="Analyze resume and job description to extract relevant experiences and skills.",
-    sub_agents=[
-      experience_agent,
-      skills_agent,
-      projects_agent,
-      education_agent,
-      contact_info_agent
-    ]
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+    ),  # Minimal thinking config for pure formatting
+    tools=[resume_query_tool],  # Only need resume data
   )
   
   summary_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="summary_agent",
-    description="Writes a professional summary for the resume that is relevant to the job description.",
+    description="Write a creative, compelling professional summary for the resume with JSON output.",
     instruction=(
-      "Your task is to generate a professional summary for the client based on the resume and job description analysis."
-      "You will want to reference the summary in the resume itself so use the resume_query_tool to do so."
-      "Ensure that the summary is concise and highlights the key qualifications and experiences relevant to the job description."
-      "Use a google search if needed to supplement your knowledge."
-      "Ensure it is ATS-compliant."
+      "You are an expert career storyteller. Analyze the resume and job description data. "
+      "Your response must be ONLY a valid JSON object - no text before or after. "
+      "Return this exact structure: {\"summary\": \"your complete summary text here\"} "
+      "Use resume_query_tool to get summary data. Start your response with { and end with }"
     ),
-    generate_content_config=types.GenerateContentConfig(temperature=0.5),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
     ),
-  tools=[resume_query_tool, job_description_query_tool, google_search],
+    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
+  )
 
+  # Build the summary structure agent to format creative summary into JSON
+  summary_structure_agent = LlmAgent(
+    model="gemini-2.5-flash",
+    name="summary_structure_agent",
+    description="Extract and format summary data into clean JSON structure.",
+    instruction=(
+      "You are a JSON formatting specialist. Your task is to analyze the resume and job description data and return ONLY a valid JSON object. "
+      "Use the resume_query_tool and job_description_query_tool to gather the same information that the creative agent would use. "
+      "CRITICAL REQUIREMENTS: "
+      "- Return ONLY the JSON object with NO additional text, explanations, markdown, or formatting. "
+      "- Do NOT include any markdown code blocks (```json or ```). "
+      "- Do NOT include any headers, comments, or explanatory text. "
+      "- Do NOT use triple backticks or any other markdown syntax. "
+      "- Start your response directly with the opening brace { and end with the closing brace }. "
+      "The JSON structure must be exactly: {\"summary\": \"your summary text here\"}. "
+      "Do NOT include any markdown code blocks, headers, or explanatory text. "
+      "Start your response directly with the opening brace { and end with the closing brace }."
+    ),
+    generate_content_config=types.GenerateContentConfig(temperature=0.1),
+    output_schema=SummaryAgentOutPutSchema,
+    output_key="summary",
+    planner=BuiltInPlanner(
+      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+    ),  # Minimal thinking config for pure formatting
+    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],  # Give access to same tools
   )
   
+  # Run analysis agents in parallel (experience, skills, projects)
+  resume_analysis_agent = ParallelAgent(
+    name="resume_analysis_agent",
+    description="Analyze resume and job description to extract relevant experiences, skills, and projects.",
+    sub_agents=[
+      experience_agent,
+      skills_agent,
+      projects_agent
+    ]
+  )
   full_workflow = SequentialAgent(
     name="resume_analysis_workflow_agent",
     sub_agents=[resume_analysis_agent, summary_agent],
-    description="Complete resume analysis workflow with parallel execution"
+    description="Complete resume analysis workflow with parallel execution and creative summary"
   )
 
   # Create a session and run the agent
@@ -287,8 +445,8 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
     "experiences": [],
     "skills": {"skills": [], "additional_skills": []},
     "projects": [],
-    "education": [],
-    "contact_info": [],
+    "education": education_data,
+    "contact_info": contact_info_data,
     "summary": ""
   }
 
@@ -296,6 +454,9 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
     # Log events for debugging
     print(f"\n Debug Event: {event}")
     if event.is_final_response() and event.content:
+      # Initialize output_key to handle cases where it's not present
+      output_key = None
+      
       # If the event includes structured output with an output_key, merge it into the final_response
       if hasattr(event, 'output_key') and hasattr(event, 'output') and event.output_key:
         output_key = event.output_key
@@ -319,7 +480,11 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
         raw_text = event.content.parts[0].text.strip()
         print(f"\n Raw Agent Response: {raw_text}")
         try:
-          parsed = json.loads(raw_text)
+          # Clean the raw text to remove markdown formatting
+          cleaned_text = clean_json_response(raw_text)
+          print(f"\n Cleaned Agent Response: {cleaned_text}")
+
+          parsed = json.loads(cleaned_text)
           # Merge top-level keys into final_response when possible
           if isinstance(parsed, dict):
             for k, v in parsed.items():
@@ -333,8 +498,14 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
               final_response["experiences"] = [parsed]
         except Exception as e:
           print(f"\n JSON parsing failed: {e}")
-          # leave final_response as the initialized, empty structure
-      break
+          print(f"Raw response was: {raw_text}")
+          print(f"Cleaned response was: {cleaned_text}")
+          # For contact_info, return empty list if parsing fails
+          if output_key == "contact_info":
+            final_response[output_key] = []
+          elif output_key == "education":
+            final_response[output_key] = []
+          # leave final_response as the initialized, empty structure for other keys
 
   # Ensure required keys exist and have sane defaults before returning
   final_response.setdefault("experiences", [])
@@ -345,36 +516,3 @@ async def strategic_resume_agent(resume_id: str, job_description_url: str):
   final_response.setdefault("summary", "")
 
   return final_response
-    # Step 1 - Take in the Job description link and extract relevant information (like title, company, description, requirements, responsibilities, skills, location, salary, source, url, createdAt) using Google Search API
-
-    # Step 1.1 - Use Google Search API to find the job description
-
-    # Step 1.2 - Extract relevant information from the job description
-
-    # Step 2 - Find the most relevant experience, skills, projects and education from the resume that will match the job description
-
-    # Use ChromaDB to search for relevant resume parts. We need to ensure the agent asks questions about the users experience, skills, projects and education to find the best matches.
-
-    # We need to ensure the agent is looking at experience and the job description in order to rewrite the items with the most relevant information (It needs to pass ATS).
-    # Additionally, the agent should consider the user's input and preferences when making suggestions.
-    # The agent needs to ask clarifying questions to better understand the user's background and tailor the resume accordingly.
-
-    # This is a list of the agents that will be needed to execute the plan:
-
-    # Job Description Agent - Extracts and normalizes job description information
-    # Resume Parsing Agent - Parses and normalizes resume information
-    # Experience Matching Agent - Matches relevant experience to the job description
-    # Skill Matching Agent - Matches relevant skills to the job description
-    # Project Matching Agent - Matches relevant projects to the job description
-    # Education Matching Agent - Matches relevant education to the job description
-
-    # These can happen in parallel
-
-    # Once these are done we need some creative agents to help rewrite the resume sections with the most relevant information. These are those agents:
-    # Experience Rewriting Agent - Rewrites experience section to highlight relevant experience
-    # Skill Rewriting Agent - Rewrites skills section to highlight relevant skills
-    # Project Rewriting Agent - Rewrites projects section to highlight relevant projects
-    # Education Rewriting Agent - Rewrites education section to highlight relevant education
-    # Tone Adjustment Agent - Adjusts the tone of the resume to match the job description
-    # Accuracy Agent - Ensures all information is accurate and no hallucinations are present. Will delegate fixes to other agents as needed.
-    # Summary Rewriting Agent - Rewrites summary section to highlight relevant experience and skills and interest in the job
