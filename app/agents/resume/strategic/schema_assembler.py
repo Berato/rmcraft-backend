@@ -80,12 +80,20 @@ class SchemaAssembler:
             return value.model_dump()
 
         if isinstance(value, str):
+            # If the string looks like JSON (starts with { or [ or a ``` code block),
+            # attempt to parse it. Otherwise, treat it as a plain string and
+            # return it unchanged so fields like 'summary' or 'name' are preserved.
             cleaned = self.clean_json_response(value)
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse JSON string: {cleaned}")
-                return None
+            trimmed = cleaned.lstrip()
+            if trimmed.startswith('{') or trimmed.startswith('[') or cleaned.startswith('```'):
+                try:
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON string: {cleaned}")
+                    return None
+            # Plain text - return as-is so higher-level logic can wrap it into
+            # the expected dict shape (e.g., {'summary': '...'}).
+            return value
 
         return value
 
@@ -245,6 +253,33 @@ class SchemaAssembler:
                     final_resume[field_name] = normalized
                 diagnostic.status = "OK"
             else:
+                # Quick-accept: if validation failed but the raw fragment contains
+                # a non-empty value of the expected Python type for certain
+                # flexible fields (summary as str, projects as list), accept it
+                # directly to avoid losing useful content from LLMs.
+                try:
+                    # Determine candidate value (handle wrapped dicts)
+                    candidate = None
+                    if isinstance(normalized, dict) and field_name in normalized:
+                        candidate = normalized[field_name]
+                    else:
+                        candidate = normalized
+
+                    if field_name == 'summary' and isinstance(candidate, str) and candidate.strip():
+                        final_resume[field_name] = candidate
+                        diagnostic.status = "OK"
+                        self.diagnostics.append(diagnostic)
+                        continue
+
+                    if field_name == 'projects' and isinstance(candidate, list) and len(candidate) > 0:
+                        final_resume[field_name] = candidate
+                        diagnostic.status = "OK"
+                        self.diagnostics.append(diagnostic)
+                        continue
+                except Exception:
+                    # Fall through to coercion repairs on any unexpected error
+                    pass
+
                 # Step 3: Apply coercion repairs
                 repaired, repairs = self.apply_coercion_repairs(normalized, schema_class)
                 diagnostic.repairs_applied.extend(repairs)
