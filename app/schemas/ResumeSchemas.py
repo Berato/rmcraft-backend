@@ -312,6 +312,11 @@ class SummaryAgentOutPutSchema(BaseModel):
     summary: str
 
 
+class NameAgentOutPutSchema(BaseModel):
+    # Agent output for a simple name field. Keep optional behavior at assembler level.
+    name: str
+
+
 class DesignBriefOutputSchema(BaseModel):
     layout_description: str = Field(description="A detailed description of the resume layout (e.g., 'two-column, minimalist').")
     color_palette: Dict[str, str] = Field(description="A dictionary mapping color roles (e.g., 'primary', 'accent') to hex color codes.")

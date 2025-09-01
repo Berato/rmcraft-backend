@@ -11,15 +11,11 @@ def test_strategic_endpoint_comprehensive():
     # Test 1: Valid request structure (even with non-existent resume)
     form_data = {
         "resume_id": "test-resume-123",
-        "job_description_url": "https://example.com/job-posting",
-        "design_prompt": "Create a modern, clean resume design"
+        "job_description_url": "https://example.com/job-posting"
     }
     
-    # Create a simple test image (1x1 pixel PNG)
-    test_image_content = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\tpHYs\x00\x00\x0b\x13\x00\x00\x0b\x13\x01\x00\x9a\x9c\x18\x00\x00\x00\nIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
-    files = {
-        "inspiration_image": ("test_image.png", test_image_content, "image/png")
-    }
+    # No files needed for the simplified endpoint
+    files = None
     
     print("🧪 Testing strategic analysis endpoint...")
     print(f"📡 Sending request to: {url}")

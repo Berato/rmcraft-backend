@@ -1,21 +1,54 @@
-from google.adk.agents import ParallelAgent, SequentialAgent
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.adk.tools import FunctionTool, google_search, agent_tool
-from google.genai import types
-from google.adk.planners import BuiltInPlanner
+try:
+    import os
+    # Try to use real Google ADK by default, fall back to mock for testing
+    if os.getenv('USE_MOCK_ADK', 'false').lower() == 'true':  # Changed default to 'false'
+        raise ImportError("Mock ADK forced for testing")
+    from google.adk.agents import ParallelAgent, SequentialAgent
+    from google.adk.agents.llm_agent import LlmAgent
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.adk.tools import FunctionTool, google_search, agent_tool
+    from google.genai import types
+    from google.adk.planners import BuiltInPlanner
+    print("✅ Using real Google ADK")
+except ImportError:
+    print("⚠️ Google ADK not available, using mock implementation")
+    # Import mock implementation
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+    from mock_adk import (
+        ParallelAgent, SequentialAgent, LlmAgent, Runner,
+        InMemorySessionService, FunctionTool, google_search, agent_tool,
+        BuiltInPlanner
+    )
+    # Mock types module
+    import types
+    types.GenerateContentConfig = type('GenerateContentConfig', (), {
+        '__init__': lambda self, temperature=0.1, response_mime_type="application/json": None
+    })
+    types.ThinkingConfig = type('ThinkingConfig', (), {
+        '__init__': lambda self, include_thoughts=False, thinking_budget=0: None
+    })
+    types.Content = type('Content', (), {
+        '__init__': lambda self, role, parts: None
+    })
+    types.Part = type('Part', (), {
+        '__init__': lambda self, text=None, inline_data=None: None
+    })
+    types.Blob = type('Blob', (), {
+        '__init__': lambda self, mime_type, data: None
+    })
 
 import chromadb
 from pyparsing import Any
 import json
+import asyncio
 from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
-from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema, DesignBriefOutputSchema, DesignerAgentOutputSchema
+from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
+from app.agents.resume.strategic.schema_assembler import create_resume_from_fragments
 import uuid
-from jinja2 import Environment
-from app.tools.pdf_generator import create_pdf
-from app.tools.file_uploader import upload_to_cloudinary
 
 
 
@@ -91,7 +124,7 @@ fetch_jd_tool = FunctionTool(func=fetch_jd_chunks)
 
 # Create a dedicated search agent using built-in google_search (root-level only)
 search_agent = LlmAgent(
-  model="gemini-2.0-flash",
+  model="gemini-2.5-flash",
   name="search_agent", 
   description="Performs internet searches using Google Search to find current information.",
   instruction=(
@@ -100,8 +133,7 @@ search_agent = LlmAgent(
     "Focus on providing factual, current information from reliable sources."
   ),
   generate_content_config=types.GenerateContentConfig(
-    temperature=0.1,
-    response_mime_type="application/json"
+    temperature=0.1
   ),
   tools=[google_search],
 )
@@ -235,10 +267,7 @@ def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict]
 
 async def strategic_resume_agent(
     resume_id: str,
-    job_description_url: str,
-    design_prompt: str,
-    inspiration_image_data: bytes,
-    inspiration_image_mime_type: str
+    job_description_url: str
 ):
   # Initialize ChromaDB client
   chroma_client = chromadb.EphemeralClient()
@@ -252,6 +281,8 @@ async def strategic_resume_agent(
     raise ValueError(f"Resume not found for id: {resume_id}")
 
   documents, metadatas, ids = process_resumes_for_chroma(resume.model_dump())
+  if not documents:
+    raise ValueError("No resume data found to process; cancelling the process.")
   resume_collection.add(documents=documents, metadatas=metadatas, ids=ids)
 
   # Extract education and contact info directly from resume
@@ -303,187 +334,98 @@ async def strategic_resume_agent(
 
   # Build the experience-analysis agent with creative analysis focus
   experience_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     name="experience_agent",
     description="Analyze resume + job description and extract relevant experience with creative insights and JSON output.",
     instruction=(
       "You are an expert resume strategist. Analyze the resume and job description data. "
+      "Reword the project description to make it more specific to the job description."
+      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
       "Your response must be ONLY a valid JSON object - no text before or after. "
       "Return this exact structure: {\"experiences\": [{\"id\": \"exp_1\", \"company\": \"Company Name\", \"position\": \"Job Title\", \"startDate\": \"2020-01\", \"endDate\": \"Present\", \"responsibilities\": [\"Responsibility 1\", \"Responsibility 2\"]}]} "
       "Use resume_query_tool to get experience data. Start your response with { and end with }"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
+      temperature=0.5
     ),
-    output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=512)
     ),
     tools=[resume_query_tool, job_description_query_tool],
   )
 
-    # Build the summary structure agent to format creative summary into JSON
-  summary_structure_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    name="summary_structure_agent",
-    description="Extract and format summary data into clean JSON structure.",
-    instruction=(
-      "You are a JSON formatting specialist. Your task is to analyze the resume and job description data and return ONLY a valid JSON object. "
-      "Use the resume_query_tool and job_description_query_tool to gather the same information that the creative agent would use. "
-      "CRITICAL REQUIREMENTS: "
-      "- Return ONLY the JSON object with NO additional text, explanations, markdown, or formatting. "
-      "- Do NOT include any markdown code blocks (```json or ```). "
-      "- Do NOT include any headers, comments, or explanatory text. "
-      "- Do NOT use triple backticks or any other markdown syntax. "
-      "- Start your response directly with the opening brace { and end with the closing brace }. "
-      "The JSON structure must be exactly: {\"summary\": \"your summary text here\"}. "
-      "Do NOT include any markdown code blocks, headers, or explanatory text. "
-      "Start your response directly with the opening brace { and end with the closing brace }."
-    ),
-    generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
-    ),
-    output_schema=SummaryAgentOutPutSchema,
-    output_key="summary",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
-    ),  # Minimal thinking config for pure formatting
-    tools=[resume_query_tool, job_description_query_tool, search_agent_tool],  # Give access to same tools
-  )
 
   skills_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     name="skills_agent",
     description="Analyze resume + job description and extract relevant skills with strategic insights and JSON output.",
     instruction=(
       "You are an expert skills strategist. Analyze the resume and job description data. "
+      "Identify the key skills required for the job and match them with the candidate's skills. "
+      "Look through projects and experience to identify any implicit skills or knowledge areas. Identify them and include them in the output."
+      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
       "CRITICAL: Your response must be ONLY a valid JSON object with NO additional text, explanations, or markdown formatting. "
       "Do NOT include any text before or after the JSON. Do NOT use markdown code blocks. Do NOT explain your response. "
       "Return ONLY this exact JSON structure: {\"skills\": [{\"id\": \"skill_1\", \"name\": \"Skill Name\", \"level\": 3}], \"additional_skills\": [\"Basic Skill 1\", \"Basic Skill 2\"]} "
       "Use resume_query_tool to get skills data. Your response must start with { and end with }. No other characters."
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
+      temperature=0.5
     ),
-    output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
     ),
     tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
 
   projects_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     name="projects_agent",
     description="Analyze resume + job description and extract relevant projects with creative insights and JSON output.",
     instruction=(
       "You are an expert project strategist. Analyze the resume and job description data. "
+      "Reword the project description to make it more specific to the job description."
+      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
       "Your response must be ONLY a valid JSON object - no text before or after. "
       "Return this exact structure: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project Name\", \"description\": \"Project description\", \"url\": \"https://example.com\"}]} "
       "Use resume_query_tool to get project data. Start your response with { and end with }"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
+      temperature=0.5
     ),
-    output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=512)
     ),
     tools=[resume_query_tool, job_description_query_tool],
   )
-
-  # Build the projects structure agent to format creative analysis into JSON
-  projects_structure_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    name="projects_structure_agent",
-    description="Extract and format projects data into clean JSON structure.",
-    instruction=(
-      "JSON ONLY. No text. No explanations. No markdown. "
-      "Return: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project\", \"description\": \"Description\", \"url\": \"https://example.com\"}]} "
-      "Use resume_query_tool to get data. Start with { end with }"
-    ),
-    generate_content_config=types.GenerateContentConfig(
-      temperature=0.0,
-      response_mime_type="application/json"
-    ),
-    output_schema=ProjectsAgentOutPutSchema,
-    output_key="projects",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
-    ),  # Minimal thinking config for pure formatting
-    tools=[resume_query_tool],  # Only need resume data
-  )
   
   summary_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-pro",
     name="summary_agent",
     description="Write a creative, compelling professional summary for the resume with JSON output.",
     instruction=(
       "You are an expert career storyteller. Analyze the resume and job description data. "
+      "Incorporate key experiences, skills, and projects into a cohesive narrative."
+      "Tone should be personable, professional and natural."
+      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
       "Your response must be ONLY a valid JSON object - no text before or after. "
       "Return this exact structure: {\"summary\": \"your complete summary text here\"} "
       "Use resume_query_tool to get summary data. Start your response with { and end with }"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
+      temperature=0.5
     ),
-    output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
     planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=False, thinking_budget=0)
+      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
     ),
     tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
 
-  # NEW AGENT 1: The Creative Director
-  brief_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    name="brief_agent",
-    description="Analyzes a text prompt and an inspiration image to create a detailed design brief.",
-    instruction=(
-      "You are an expert Creative Director. Analyze the user's text prompt and the "
-      "provided inspiration image. Generate a detailed, structured JSON design brief. "
-      "This brief MUST include: a description of the layout, a color palette with hex codes "
-      "extracted from the image, a list of specific Google Fonts that closely match "
-      "the typography, and a final concise `design_prompt_for_developer` for the next agent."
-    ),
-    generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
-    ),
-    output_schema=DesignBriefOutputSchema,
-    output_key="design_brief",
-  )
 
-  # NEW AGENT 2: The UI Developer
-  designer_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    name="designer_agent",
-    description="""Generates a Jinja2 template and CSS stylesheet based on a detailed design brief.
-    DESIGN BRIEF:
-    {design_brief}
-    """,
-    instruction=(
-      "You are an expert front-end developer. Your task is to execute the provided "
-      "JSON design brief to generate a Jinja2 template and the corresponding CSS. "
-      "Use the layout, colors, and fonts from the brief to create the theme. "
-      "Ensure you include the specified Google Fonts using an `@import` rule at the top of the CSS. "
-      "Your response MUST be ONLY a valid JSON object containing 'jinja_template' and 'css_styles' keys."
-    ),
-    generate_content_config=types.GenerateContentConfig(
-      temperature=0.1,
-      response_mime_type="application/json"
-    ),
-    output_schema=DesignerAgentOutputSchema,
-  )
 
   # Run analysis agents in parallel (experience, skills, projects)
   resume_analysis_agent = ParallelAgent(
@@ -499,11 +441,9 @@ async def strategic_resume_agent(
     name="full_resume_workflow",
     sub_agents=[
         resume_analysis_agent,
-        summary_agent,
-        brief_agent,      # NEW agent in the sequence
-        designer_agent
+        summary_agent
     ],
-    description="Complete resume analysis, summary, creative brief, and design workflow."
+    description="Complete resume analysis and summary workflow."
   )
 
   # Create a session and run the agent
@@ -512,43 +452,64 @@ async def strategic_resume_agent(
   session = await session_service.create_session(app_name="resume_rewrite", user_id="user_123", session_id=session_id)
   runner = Runner(agent=full_workflow, session_service=session_service, app_name="resume_rewrite")
 
+  content_parts = [
+      types.Part(text=(
+          f"Perform a strategic analysis for resume {resume_id} against job url {job_description_url}. "
+          f"Extract and analyze relevant experience, skills, projects, and create a compelling summary."
+      ))
+  ]
+
   content = types.Content(
       role='user',
-      parts=[
-          types.Part(text=(
-              f"1. First, perform the strategic analysis for resume {resume_id} against job url {job_description_url}. "
-              f"2. Next, using the inspiration image provided, create a design brief based on the following prompt: '{design_prompt}'. "
-              f"3. Finally, generate the Jinja2 and CSS theme based on the brief you created."
-          )),
-          types.Part(inline_data=types.Blob(
-              mime_type=inspiration_image_mime_type,
-              data=inspiration_image_data
-          ))
-      ]
+      parts=content_parts
   )
 
-  # Prepare a merged final response structure that matches the agents' output schemas
-  final_response = {
+  # Collect agent outputs into fragments for schema assembler
+  fragments = {
     "experiences": [],
     "skills": {"skills": [], "additional_skills": []},
     "projects": [],
-    "education": education_data,
-    "contact_info": contact_info_data,
-    "summary": "",
-    "design_brief": {},
-    "jinja_template": "",
-    "css_styles": "",
-    "cloudinary_url": None
+    "education": {"education": education_data},  # Wrap in expected dict format
+    "contact_info": {"contact_info": contact_info_data},  # Wrap in expected dict format
+    "summary": ""
   }
 
+  # Ensure a name fragment is present. Prefer resume.name, fall back to personalInfo first/last name, else empty string.
+  name_value = ""
+  try:
+    if hasattr(resume, 'name') and resume.name:
+      name_value = resume.name
+    elif hasattr(resume, 'personalInfo') and resume.personalInfo:
+      personal = resume.personalInfo
+      if isinstance(personal, dict):
+        first = personal.get('firstName', '')
+        last = personal.get('lastName', '')
+        name_value = (first + ' ' + last).strip() if (first or last) else ''
+      elif hasattr(personal, 'model_dump'):
+        pd = personal.model_dump()
+        first = pd.get('firstName', '')
+        last = pd.get('lastName', '')
+        name_value = (first + ' ' + last).strip() if (first or last) else ''
+  except Exception:
+    name_value = ""
+
+  fragments["name"] = {"name": name_value}
+
+  # Run the agent with a safety timeout to avoid indefinite hangs when models return
+  # non-final events (e.g., function_calls) or when downstream services are slow.
+  timeout_seconds = 60
+  loop = asyncio.get_running_loop()
+  start_time = loop.time()
   async for event in runner.run_async(new_message=content, session_id=session_id, user_id="user_123"):
-    # Log events for debugging
-    print(f"\n Debug Event: {event}")
+    # Enforce timeout
+    if loop.time() - start_time > timeout_seconds:
+      print(f"⏰ Runner timeout of {timeout_seconds}s exceeded, aborting agent run.")
+      break
     if event.is_final_response() and event.content:
       # Initialize output_key to handle cases where it's not present
       output_key = None
-      
-      # If the event includes structured output with an output_key, merge it into the final_response
+
+      # Extract the output value from the event
       if hasattr(event, 'output_key') and hasattr(event, 'output') and event.output_key:
         output_key = event.output_key
         output_val = event.output
@@ -559,123 +520,49 @@ async def strategic_resume_agent(
         except Exception:
           pass
 
-        # If the output is a dict that itself contains the expected key, prefer that nested shape
-        if isinstance(output_val, dict) and output_key in output_val:
-          final_response[output_key] = output_val[output_key]
-        else:
-          final_response[output_key] = output_val
-
-        print(f"\n Structured Agent Response for key '{output_key}': {final_response[output_key]}")
+        # Store the raw output for schema assembler to process
+        if output_key and output_key in fragments:
+          fragments[output_key] = output_val
       else:
         # Fallback to parsing text content (agent returned JSON/string)
-        raw_text = event.content.parts[0].text.strip()
-        print(f"\n Raw Agent Response: {raw_text}")
-        try:
-          # Clean the raw text to remove markdown formatting
+        if hasattr(event, 'content') and hasattr(event.content, 'parts') and event.content.parts:
+          raw_text = event.content.parts[0].text.strip()
+          print(f"\n Raw Agent Response: {raw_text}")
+
+          # Clean and parse the JSON response
           cleaned_text = clean_json_response(raw_text)
-          print(f"\n Cleaned Agent Response: {cleaned_text}")
 
-          # Validate the JSON response
-          expected_keys = None
-          if output_key == "skills":
-            expected_keys = ["skills", "additional_skills"]
-          elif output_key == "experiences":
-            expected_keys = ["experiences"]
-          elif output_key == "projects":
-            expected_keys = ["projects"]
-          elif output_key == "summary":
-            expected_keys = ["summary"]
-
-          is_valid, error_msg = validate_json_response(cleaned_text, expected_keys)
-          if not is_valid:
-            raise ValueError(f"JSON validation failed: {error_msg}")
-
-          parsed = json.loads(cleaned_text)
-          # Merge top-level keys into final_response when possible
-          if isinstance(parsed, dict):
-            for k, v in parsed.items():
-              final_response[k] = v
-          else:
-            # If parsed is a list or other shape, place it under experiences as a best-effort fallback
-            # Normalize non-list parsed values into a single-item list so the schema stays consistent
-            if isinstance(parsed, list):
-              final_response["experiences"] = parsed
+          try:
+            parsed = json.loads(cleaned_text)
+            # Store the parsed response for schema assembler
+            if isinstance(parsed, dict):
+              # Store by matching keys
+              for k, v in parsed.items():
+                if k in fragments:
+                  fragments[k] = v
             else:
-              final_response["experiences"] = [parsed]
-        except json.JSONDecodeError as e:
-          print(f"\n❌ JSON parsing failed for {output_key}: {e}")
-          print(f"Raw response was: {raw_text}")
-          print(f"Cleaned response was: {cleaned_text}")
-          # Provide better fallback values based on the expected output_key
-          if output_key == "skills":
-            final_response[output_key] = {"skills": [], "additional_skills": []}
-            print(f"✅ Set fallback empty skills structure for {output_key}")
-          elif output_key == "experiences":
-            final_response[output_key] = []
-            print(f"✅ Set fallback empty list for {output_key}")
-          elif output_key == "projects":
-            final_response[output_key] = []
-            print(f"✅ Set fallback empty list for {output_key}")
-          elif output_key == "summary":
-            final_response[output_key] = "Professional with relevant experience in the field."
-            print(f"✅ Set fallback summary for {output_key}")
-          elif output_key == "contact_info":
-            final_response[output_key] = []
-            print(f"✅ Set fallback empty list for {output_key}")
-          elif output_key == "education":
-            final_response[output_key] = []
-            print(f"✅ Set fallback empty list for {output_key}")
-          elif output_key == "design_brief":
-            final_response[output_key] = {}
-            print(f"✅ Set fallback empty dict for {output_key}")
-          else:
-            print(f"⚠️ No fallback defined for {output_key}")
-        except Exception as e:
-          print(f"\n❌ Unexpected error processing {output_key}: {e}")
-          print(f"Raw response was: {raw_text}")
-          # For contact_info, return empty list if parsing fails
-          if output_key == "contact_info":
-            final_response[output_key] = []
-          elif output_key == "education":
-            final_response[output_key] = []
-          # leave final_response as the initialized, empty structure for other keys
+              # If parsed is a list or other shape, try to infer the key
+              if output_key and output_key in fragments:
+                fragments[output_key] = parsed
+          except json.JSONDecodeError as e:
+            print(f"\n❌ JSON parsing failed: {e}")
+            print(f"Raw response was: {raw_text}")
+            print(f"Cleaned response was: {cleaned_text}")
+        else:
+          print(f"\n⚠️ Event has no content or parts: {event}")
+    else:
+      print(f"\n⚠️ Event is not final response or has no content: is_final={event.is_final_response()}, has_content={bool(event.content) if hasattr(event, 'content') else 'no content attr'}")
 
-  # Ensure required keys exist and have sane defaults before returning
-  final_response.setdefault("experiences", [])
-  final_response.setdefault("skills", {"skills": [], "additional_skills": []})
-  final_response.setdefault("projects", [])
-  final_response.setdefault("education", [])
-  final_response.setdefault("contact_info", [])
-  final_response.setdefault("summary", "")
-  final_response.setdefault("design_brief", {})
-  final_response.setdefault("jinja_template", "")
-  final_response.setdefault("css_styles", "")
-  final_response.setdefault("cloudinary_url", None)
+  # Use schema assembler to validate, repair, and build final response
+  final_response, diagnostics = create_resume_from_fragments(fragments)
 
-  # PDF Generation and Upload Logic
-  jinja_template_str = final_response.get("jinja_template")
-  css_styles_str = final_response.get("css_styles")
-
-  if jinja_template_str and css_styles_str:
-    print("🎨 Designer agent output found. Rendering and uploading PDF...")
-
-    # 1. Render HTML from Jinja2 Template
-    env = Environment()
-    template = env.from_string(jinja_template_str)
-    # The 'final_response' dict itself is the context for rendering
-    html_output = template.render(final_response)
-
-    # 2. Generate PDF locally (e.g., in a temporary directory)
-    local_pdf_path = f"/tmp/Designed_Resume_{resume_id}_{uuid.uuid4().hex[:8]}.pdf"
-    pdf_created = create_pdf(html_output, css_styles_str, local_pdf_path)
-
-    # 3. Upload PDF to Cloudinary
-    if pdf_created:
-      public_id = f"resumes/{resume_id}/{uuid.uuid4().hex}"
-      cloudinary_url = upload_to_cloudinary(local_pdf_path, public_id)
-      final_response["cloudinary_url"] = cloudinary_url
-  else:
-    print("⚠️ Designer agent output not found. Skipping PDF generation and upload.")
-    final_response["cloudinary_url"] = None
+  # Log diagnostics for monitoring
+  for diagnostic in diagnostics:
+    if diagnostic.status == "FAILED":
+      print(f"❌ Schema repair failed for {diagnostic.field}: {diagnostic.error_message}")
+    elif diagnostic.repairs_applied:
+      print(f"⚠️ Schema repair applied for {diagnostic.field}: {', '.join(diagnostic.repairs_applied)}")
+    else:
+      print(f"✅ Schema validation passed for {diagnostic.field}")
 
   return final_response
