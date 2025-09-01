@@ -13,9 +13,10 @@ class MockThinkingConfig:
 
 
 class MockGenerateContentConfig:
-    def __init__(self, temperature: float = 0.1, response_mime_type: str = "application/json"):
+    def __init__(self, temperature: float = 0.1, response_mime_type: str = "application/json", response_schema=None):
         self.temperature = temperature
         self.response_mime_type = response_mime_type
+        self.response_schema = response_schema
 
 
 class MockPlanner:
@@ -91,33 +92,39 @@ class MockLlmAgent:
                 "experiences": [
                     {
                         "id": "exp_1",
-                        "company": "Tech Corp",
-                        "position": "Senior Engineer",
-                        "startDate": "2020-01",
-                        "endDate": "2023-01",
-                        "responsibilities": ["Led development team", "Implemented new features"]
+                        "company": "Target Corporation",
+                        "position": "Senior Software Engineer",
+                        "startDate": "2021-01",
+                        "endDate": "2024-08",
+                        "responsibilities": [
+                            "Led front-end development for 3D asset management platform, driving >$50M in new revenue through AI initiatives.",
+                            "Built internal AI platforms using TypeScript, React, and Next.js.",
+                            "Collaborated with product teams to deliver seamless user experiences."
+                        ]
                     }
                 ]
             },
             "skills_agent": {
                 "skills": [
-                    {"id": "skill_1", "name": "Python", "level": 5},
-                    {"id": "skill_2", "name": "JavaScript", "level": 4}
-                ],
-                "additional_skills": ["Docker", "AWS"]
+                    {"id": "skill_1", "name": "TypeScript", "level": 5},
+                    {"id": "skill_2", "name": "React", "level": 5},
+                    {"id": "skill_3", "name": "Next.js", "level": 4},
+                    {"id": "skill_4", "name": "JavaScript", "level": 5},
+                    {"id": "skill_5", "name": "Node.js", "level": 4}
+                ]
             },
             "projects_agent": {
                 "projects": [
                     {
                         "id": "proj_1",
-                        "name": "E-commerce Platform",
-                        "description": "Built scalable e-commerce platform",
+                        "name": "Konjure - Internal Sales Platform",
+                        "description": "Designed and built comprehensive sales pipeline management tool with focus on user experience and engagement optimization.",
                         "url": "https://example.com"
                     }
                 ]
             },
             "summary_agent": {
-                "summary": "Experienced software engineer with 5+ years in web development, specializing in Python and JavaScript."
+                "summary": "Senior Software Engineer with 13+ years of experience building front-end‑leaning full‑stack products using TypeScript, React, and Next.js. At Target, led front‑end for enterprise 3D asset management app and built internal AI platforms, driving LLM/agent initiatives that contributed to >$50M in new revenue. Excel at shipping end‑to‑end features, designing clean, usable UIs in close partnership with product and growth teams, and owning cross‑functional delivery."
             },
             "brief_agent": {
                 "layout_description": "Modern two-column resume layout",

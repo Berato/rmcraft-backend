@@ -319,6 +319,7 @@ async def strategic_resume_agent(
   )
 
   def resume_query_tool(queries: list[str], top_k: int = 4) -> list[dict]:
+    """Query resume collection for relevant information based on search terms."""
     resume_parts = []
     results = resume_collection.query(query_texts=queries, n_results=top_k)
     for doc, meta, score in zip(results.get('documents', []), results.get('metadatas', []), results.get('distances', [])):
@@ -326,6 +327,7 @@ async def strategic_resume_agent(
     return resume_parts
 
   def job_description_query_tool(queries: list[str], top_k: int = 10) -> list[dict]:
+    """Query job description collection for relevant information based on search terms."""
     jd_parts = []
     results = jd_collection.query(query_texts=queries, n_results=top_k)
     for doc, meta, score in zip(results.get('documents', []), results.get('metadatas', []), results.get('distances', [])):
@@ -340,18 +342,15 @@ async def strategic_resume_agent(
     instruction=(
       "You are an expert resume strategist. Analyze the resume and job description data. "
       "Reword the project description to make it more specific to the job description."
+      "IMPORTANT: Always generate a unique 'id' field for each experience (e.g., 'exp_1', 'exp_2')."
       "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Your response must be ONLY a valid JSON object - no text before or after. "
-      "Return this exact structure: {\"experiences\": [{\"id\": \"exp_1\", \"company\": \"Company Name\", \"position\": \"Job Title\", \"startDate\": \"2020-01\", \"endDate\": \"Present\", \"responsibilities\": [\"Responsibility 1\", \"Responsibility 2\"]}]} "
-      "Use resume_query_tool to get experience data. Start your response with { and end with }"
+      "Use resume_query_tool to get experience data. Return structured JSON with experiences array."
     ),
     generate_content_config=types.GenerateContentConfig(
       temperature=0.5
     ),
+    output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=512)
-    ),
     tools=[resume_query_tool, job_description_query_tool],
   )
 
@@ -364,19 +363,15 @@ async def strategic_resume_agent(
       "You are an expert skills strategist. Analyze the resume and job description data. "
       "Identify the key skills required for the job and match them with the candidate's skills. "
       "Look through projects and experience to identify any implicit skills or knowledge areas. Identify them and include them in the output."
+      "IMPORTANT: Always generate a unique 'id' field for each skill (e.g., 'skill_1', 'skill_2')."
       "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "CRITICAL: Your response must be ONLY a valid JSON object with NO additional text, explanations, or markdown formatting. "
-      "Do NOT include any text before or after the JSON. Do NOT use markdown code blocks. Do NOT explain your response. "
-      "Return ONLY this exact JSON structure: {\"skills\": [{\"id\": \"skill_1\", \"name\": \"Skill Name\", \"level\": 3}], \"additional_skills\": [\"Basic Skill 1\", \"Basic Skill 2\"]} "
-      "Use resume_query_tool to get skills data. Your response must start with { and end with }. No other characters."
+      "Use resume_query_tool to get skills data. Return structured JSON with skills array."
     ),
     generate_content_config=types.GenerateContentConfig(
       temperature=0.5
     ),
+    output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
-    ),
     tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
 
@@ -387,18 +382,16 @@ async def strategic_resume_agent(
     instruction=(
       "You are an expert project strategist. Analyze the resume and job description data. "
       "Reword the project description to make it more specific to the job description."
+      "IMPORTANT: Always generate a unique 'id' field for each project (e.g., 'proj_1', 'proj_2')."
+      "IMPORTANT: If a project URL is not available, set url to null or an empty string."
       "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Your response must be ONLY a valid JSON object - no text before or after. "
-      "Return this exact structure: {\"projects\": [{\"id\": \"proj_1\", \"name\": \"Project Name\", \"description\": \"Project description\", \"url\": \"https://example.com\"}]} "
-      "Use resume_query_tool to get project data. Start your response with { and end with }"
+      "Use resume_query_tool to get project data. Return structured JSON with projects array."
     ),
     generate_content_config=types.GenerateContentConfig(
       temperature=0.5
     ),
+    output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=512)
-    ),
     tools=[resume_query_tool, job_description_query_tool],
   )
   
@@ -411,17 +404,13 @@ async def strategic_resume_agent(
       "Incorporate key experiences, skills, and projects into a cohesive narrative."
       "Tone should be personable, professional and natural."
       "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Your response must be ONLY a valid JSON object - no text before or after. "
-      "Return this exact structure: {\"summary\": \"your complete summary text here\"} "
-      "Use resume_query_tool to get summary data. Start your response with { and end with }"
+      "Use resume_query_tool to get summary data. Return structured JSON with summary string."
     ),
     generate_content_config=types.GenerateContentConfig(
       temperature=0.5
     ),
+    output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
-    planner=BuiltInPlanner(
-      thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=1024)
-    ),
     tools=[resume_query_tool, job_description_query_tool, search_agent_tool],
   )
 
@@ -505,53 +494,47 @@ async def strategic_resume_agent(
     if loop.time() - start_time > timeout_seconds:
       print(f"⏰ Runner timeout of {timeout_seconds}s exceeded, aborting agent run.")
       break
+      
     if event.is_final_response() and event.content:
-      # Initialize output_key to handle cases where it's not present
-      output_key = None
+      # With structured output, the content should be valid JSON
+      if hasattr(event.content, 'parts') and event.content.parts:
+        raw_text = event.content.parts[0].text.strip()
+        print(f"\n🔄 Agent Response: {raw_text}")
 
-      # Extract the output value from the event
-      if hasattr(event, 'output_key') and hasattr(event, 'output') and event.output_key:
-        output_key = event.output_key
-        output_val = event.output
-        # If output is a pydantic model or similar, try to convert to plain dict
         try:
-          if hasattr(output_val, 'model_dump'):
-            output_val = output_val.model_dump()
-        except Exception:
-          pass
-
-        # Store the raw output for schema assembler to process
-        if output_key and output_key in fragments:
-          fragments[output_key] = output_val
-      else:
-        # Fallback to parsing text content (agent returned JSON/string)
-        if hasattr(event, 'content') and hasattr(event.content, 'parts') and event.content.parts:
-          raw_text = event.content.parts[0].text.strip()
-          print(f"\n Raw Agent Response: {raw_text}")
-
-          # Clean and parse the JSON response
+          # Parse the structured JSON response
+          parsed_response = json.loads(raw_text)
+          print(f"✅ Parsed structured response: {type(parsed_response)}")
+          
+          # Map structured responses to fragments
+          if isinstance(parsed_response, dict):
+            for key, value in parsed_response.items():
+              if key in fragments:
+                fragments[key] = value
+                print(f"✅ Updated fragment '{key}' with structured data")
+          
+        except json.JSONDecodeError as e:
+          print(f"❌ JSON parsing failed: {e}")
+          print(f"Raw response was: {raw_text}")
+          
+          # Try manual extraction as fallback
           cleaned_text = clean_json_response(raw_text)
-
           try:
             parsed = json.loads(cleaned_text)
-            # Store the parsed response for schema assembler
             if isinstance(parsed, dict):
-              # Store by matching keys
               for k, v in parsed.items():
                 if k in fragments:
                   fragments[k] = v
-            else:
-              # If parsed is a list or other shape, try to infer the key
-              if output_key and output_key in fragments:
-                fragments[output_key] = parsed
-          except json.JSONDecodeError as e:
-            print(f"\n❌ JSON parsing failed: {e}")
-            print(f"Raw response was: {raw_text}")
-            print(f"Cleaned response was: {cleaned_text}")
-        else:
-          print(f"\n⚠️ Event has no content or parts: {event}")
+                  print(f"⚠️ Fallback: Updated fragment '{k}' with cleaned data")
+          except json.JSONDecodeError:
+            print(f"❌ Fallback parsing also failed for: {cleaned_text}")
+      else:
+        print(f"⚠️ Event has no content parts: {event}")
     else:
-      print(f"\n⚠️ Event is not final response or has no content: is_final={event.is_final_response()}, has_content={bool(event.content) if hasattr(event, 'content') else 'no content attr'}")
+      if hasattr(event, 'is_final_response'):
+        print(f"⚠️ Non-final event: is_final={event.is_final_response()}, has_content={bool(getattr(event, 'content', None))}")
+      else:
+        print(f"⚠️ Event without final response check: {type(event)}")
 
   # Use schema assembler to validate, repair, and build final response
   final_response, diagnostics = create_resume_from_fragments(fragments)

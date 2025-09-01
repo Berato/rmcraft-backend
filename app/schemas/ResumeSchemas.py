@@ -58,7 +58,7 @@ class Project(BaseModel):
     id: str
     name: str
     description: str
-    url: str
+    url: Optional[str] = None
 
 
 class Skill(BaseModel):
@@ -365,5 +365,18 @@ class ThemePackage(BaseModel):
     updatedAt: datetime
     coverLetterTemplate: Optional[Theme] = None
     resumeTemplate: Optional[Theme] = None
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
+
+
+class ResumeAnalysisSchema(BaseModel):
+    """Schema for strategic resume analysis response data"""
+    experiences: List[Experience] = Field(default_factory=list)
+    skills: List[Skill] = Field(default_factory=list) 
+    projects: List[Project] = Field(default_factory=list)
+    education: List[Education] = Field(default_factory=list)
+    contact_info: List[ContactInfo] = Field(default_factory=list)
+    summary: str = ""
+    name: str = ""
 
     model_config = pydantic.ConfigDict(from_attributes=True)

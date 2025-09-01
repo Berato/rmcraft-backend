@@ -1,3 +1,10 @@
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ImportError:
+    # Fallback for testing/mock environments
+    from .config_mock import settings
+    raise ImportError("Using mock settings - pydantic_settings not available")
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
