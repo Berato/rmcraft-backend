@@ -98,12 +98,11 @@ class ResumeBase(BaseModel):
 
 
 class ResumeCreate(ResumeBase):
-    userId: str
+    pass
 
 
-class Resume(ResumeBase):
+class ResumeResponse(ResumeBase):
     id: str
-    userId: str
     createdAt: datetime
     updatedAt: datetime
 
@@ -355,18 +354,16 @@ class Theme(BaseModel):
     model_config = pydantic.ConfigDict(from_attributes=True)
 
 
-class ThemePackage(BaseModel):
-    id: str
-    name: str
-    description: Optional[str] = None
-    coverLetterTemplateId: str
-    resumeTemplateId: str
-    createdAt: datetime
-    updatedAt: datetime
-    coverLetterTemplate: Optional[Theme] = None
-    resumeTemplate: Optional[Theme] = None
+class ThemeComponent(BaseModel):
+    template: str
+    styles: str
 
-    model_config = pydantic.ConfigDict(from_attributes=True)
+
+class ThemePackage(BaseModel):
+    name: str
+    description: str
+    resumeTemplate: ThemeComponent
+    coverLetterTemplate: ThemeComponent
 
 
 class ResumeAnalysisSchema(BaseModel):
