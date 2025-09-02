@@ -24,3 +24,57 @@ poetry install
 poetry install
 # then reload the VS Code window (Developer: Reload Window)
 ```
+
+## API Usage
+
+### Strategic Resume Analysis Endpoint
+
+The `/api/v1/resumes/strategic-analysis` endpoint analyzes a resume against a job description and generates a custom PDF design.
+
+**Endpoint:** `POST /api/v1/resumes/strategic-analysis`
+
+**Content-Type:** `multipart/form-data`
+
+**Parameters:**
+- `resume_id` (string, required): The ID of the resume to analyze
+- `job_description_url` (string, required): URL of the job description to analyze against
+- `design_prompt` (string, required): Description of the desired resume design
+- `inspiration_image` (file, required): Image file to use as design inspiration
+
+**Example using curl:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/resumes/strategic-analysis" \
+  -F "resume_id=cme3py2tu0003fbrzfxt8wuum" \
+  -F "job_description_url=https://example.com/job-posting" \
+  -F "design_prompt=A clean designer resume with strong, bold fonts" \
+  -F "inspiration_image=@/path/to/your/image.jpg"
+```
+
+**Example using Python requests:**
+```python
+import requests
+
+url = "http://localhost:8000/api/v1/resumes/strategic-analysis"
+form_data = {
+    "resume_id": "cme3py2tu0003fbrzfxt8wuum",
+    "job_description_url": "https://example.com/job-posting",
+    "design_prompt": "A clean designer resume with strong, bold fonts"
+}
+files = {
+    "inspiration_image": ("image.jpg", open("path/to/image.jpg", "rb"), "image/jpeg")
+}
+
+response = requests.post(url, data=form_data, files=files)
+```
+
+**Response:**
+```json
+{
+  "status": 200,
+  "message": "Strategic analysis and PDF generation completed successfully",
+  "data": {
+    "pdf_url": "https://cloudinary.com/...",
+    "analysis": {...}
+  }
+}
+```

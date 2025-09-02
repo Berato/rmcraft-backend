@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Literal, Dict, Union
 from datetime import datetime
 import uuid
+from enum import Enum
+from typing import Optional, List
 
 class PersonalInfo(BaseModel):
     id: str
@@ -41,12 +43,13 @@ class Experience(BaseModel):
     startDate: str
     endDate: str
     responsibilities: List[str] = Field(default_factory=list)
+    
 
 
 class Education(BaseModel):
     id: str
     institution: str
-    degree: str
+    degree: Optional[str]
     startDate: str
     endDate: str
 
@@ -55,7 +58,7 @@ class Project(BaseModel):
     id: str
     name: str
     description: str
-    url: str
+    url: Optional[str] = None
 
 
 class Skill(BaseModel):
@@ -280,3 +283,100 @@ class JobProfileWizardStep(BaseModel):
     title: str
     subtitle: str
     component: Optional[Any] = None  # placeholder for a UI/component reference
+
+class ContactInfo(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    website: Optional[str] = None
+
+
+class ExperienceAgentOutPutSchema(BaseModel):
+    experiences: List[Experience]
+
+class SkillsAgentOutPutSchema(BaseModel):
+    skills: List[Skill]
+    additional_skills: List[str]
+
+class ProjectsAgentOutPutSchema(BaseModel):
+    projects: List[Project]
+
+class EducationAgentOutPutSchema(BaseModel):
+    education: List[Education]
+
+class ContactInfoAgentOutPutSchema(BaseModel):
+    contact_info: List[ContactInfo]
+
+class SummaryAgentOutPutSchema(BaseModel):
+    summary: str
+
+
+class NameAgentOutPutSchema(BaseModel):
+    # Agent output for a simple name field. Keep optional behavior at assembler level.
+    name: str
+
+
+class DesignBriefOutputSchema(BaseModel):
+    layout_description: str = Field(description="A detailed description of the resume layout (e.g., 'two-column, minimalist').")
+    color_palette: Dict[str, str] = Field(description="A dictionary mapping color roles (e.g., 'primary', 'accent') to hex color codes.")
+    google_fonts: List[str] = Field(description="A list of suggested Google Font names (e.g., ['Lato', 'Roboto Slab']).")
+    design_prompt_for_developer: str = Field(description="A concise, regenerated prompt for the next agent to use.")
+
+
+class DesignerAgentOutputSchema(BaseModel):
+    jinja_template: str = Field(description="A complete Jinja2 template string for the resume.")
+    css_styles: str = Field(description="A complete CSS string to style the resume.")
+    
+    
+class CoverLetterTone(str, Enum):
+    PROFESSIONAL = "professional"
+    CREATIVE = "creative"
+    ENTHUSIASTIC = "enthusiastic"
+    FORMAL = "formal"
+
+
+class ThemeType(str, Enum):
+    RESUME = "RESUME"
+    COVER_LETTER = "COVER_LETTER"
+
+
+class Theme(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    type: ThemeType
+    template: str
+    styles: str
+    previewImageUrl: Optional[str] = None
+    createdAt: datetime
+    updatedAt: datetime
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
+
+
+class ThemePackage(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    coverLetterTemplateId: str
+    resumeTemplateId: str
+    createdAt: datetime
+    updatedAt: datetime
+    coverLetterTemplate: Optional[Theme] = None
+    resumeTemplate: Optional[Theme] = None
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
+
+
+class ResumeAnalysisSchema(BaseModel):
+    """Schema for strategic resume analysis response data"""
+    experiences: List[Experience] = Field(default_factory=list)
+    skills: List[Skill] = Field(default_factory=list) 
+    projects: List[Project] = Field(default_factory=list)
+    education: List[Education] = Field(default_factory=list)
+    contact_info: List[ContactInfo] = Field(default_factory=list)
+    summary: str = ""
+    name: str = ""
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
