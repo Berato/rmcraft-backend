@@ -4,10 +4,13 @@ Cover Letters API Endpoints
 Endpoints for strategic cover letter generation.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any, List
+from sqlalchemy.orm import Session
 from app.features.cover_letter_orchestrator import cover_letter_orchestrator
+from app.services.cover_letter_service import list_cover_letters
+from app.db.session import get_db
 
 router = APIRouter()
 
@@ -52,6 +55,41 @@ class CoverLetterAPIResponse(BaseModel):
     status: int
     message: str
     data: StrategicCoverLetterResponse
+
+
+class CoverLetterSummary(BaseModel):
+    """Summary model for cover letter listing"""
+    id: str
+    title: str
+    jobDetails: Dict[str, Any]
+    resumeId: str
+    jobProfileId: Optional[str] = None
+    createdAt: str
+    updatedAt: str
+    wordCount: int
+    atsScore: int
+    finalContent: Optional[str] = None
+
+
+class CoverLetterListMeta(BaseModel):
+    """Pagination metadata for cover letter list"""
+    page: int
+    perPage: int
+    total: int
+    totalPages: int
+
+
+class CoverLetterListData(BaseModel):
+    """Data structure for cover letter list"""
+    items: List[CoverLetterSummary]
+    meta: CoverLetterListMeta
+
+
+class CoverLetterListResponse(BaseModel):
+    """Response model for cover letter list endpoint"""
+    status: int
+    message: str
+    data: CoverLetterListData
 
 
 @router.post("/strategic-create", response_model=CoverLetterAPIResponse)
@@ -136,4 +174,87 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate cover letter: {str(e)}"
+        )
+
+
+@router.get("/", response_model=CoverLetterListResponse)
+async def list_cover_letters_endpoint(
+    page: int = 1,
+    perPage: int = 20,
+    resumeId: Optional[str] = None,
+    jobProfileId: Optional[str] = None,
+    search: Optional[str] = None,
+    sortBy: str = "createdAt",
+    sortOrder: str = "desc",
+    include: Optional[str] = None,
+    from_date: Optional[str] = None,  # Changed from 'from' to 'from_date' to avoid Python keyword
+    to: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    List cover letters with pagination, filtering, and search.
+
+    This endpoint provides a paginated, filterable list of cover letters.
+
+    Query Parameters:
+    - **page**: Page number (default: 1)
+    - **perPage**: Items per page (default: 20, max: 100)
+    - **resumeId**: Filter by resume ID
+    - **jobProfileId**: Filter by job profile ID
+    - **from_date**: Filter by created date >= from_date (ISO format)
+    - **to**: Filter by created date <= to (ISO format)
+    - **search**: Free text search in title and content
+    - **sortBy**: Sort field (createdAt, wordCount, atsScore)
+    - **sortOrder**: Sort order (asc, desc)
+    - **include**: Comma-separated list of fields to include (e.g., "finalContent")
+    """
+    try:
+        # Parse include parameter
+        include_list = None
+        if include:
+            include_list = [field.strip() for field in include.split(",")]
+
+        # Build filters
+        filters = {}
+        if resumeId:
+            filters['resumeId'] = resumeId
+        if jobProfileId:
+            filters['jobProfileId'] = jobProfileId
+        if from_date:
+            filters['from_date'] = from_date
+        if to:
+            filters['to_date'] = to
+
+        # Call service
+        result = list_cover_letters(
+            db=db,
+            page=page,
+            per_page=perPage,
+            filters=filters if filters else None,
+            search=search,
+            sort_by=sortBy,
+            sort_order=sortOrder,
+            include=include_list
+        )
+
+        # Format response
+        items = [CoverLetterSummary(**item) for item in result['items']]
+        meta = CoverLetterListMeta(**result['meta'])
+        data = CoverLetterListData(items=items, meta=meta)
+        
+        response_data = CoverLetterListResponse(
+            status=200,
+            message="Cover letters retrieved successfully",
+            data=data
+        )
+
+        return response_data
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"❌ Error listing cover letters: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list cover letters: {str(e)}"
         )

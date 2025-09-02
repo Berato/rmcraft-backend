@@ -22,3 +22,4 @@ CREATE TABLE cover_letters (
 
 CREATE INDEX idx_cover_letters_resumeId ON cover_letters(resumeId);
 CREATE INDEX idx_cover_letters_jobProfileId ON cover_letters(jobProfileId);
+CREATE INDEX idx_cover_letters_createdAt ON cover_letters(createdAt);

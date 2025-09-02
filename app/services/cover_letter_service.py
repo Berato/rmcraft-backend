@@ -4,13 +4,15 @@ Cover Letter Service
 Service layer for cover letter operations, including CRUD utilities.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import logging
+from sqlalchemy import or_, and_, func
 
 from app.models.cover_letter import CoverLetter
+from app.models.resume import Resume
 
 logger = logging.getLogger(__name__)
 
@@ -209,3 +211,141 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
         db.rollback()
         logger.error(f"Error saving cover letter: {e}")
         raise Exception(f"Failed to save cover letter: {str(e)}")
+
+
+def list_cover_letters(
+    db: Session,
+    *,
+    page: int = 1,
+    per_page: int = 20,
+    filters: Optional[Dict[str, Any]] = None,
+    search: Optional[str] = None,
+    sort_by: str = 'createdAt',
+    sort_order: str = 'desc',
+    include: Optional[List[str]] = None,
+    current_user: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    List cover letters with pagination, filtering, and search.
+
+    Args:
+        db: Database session
+        page: Page number (1-based)
+        per_page: Items per page
+        filters: Dictionary of filters (resumeId, jobProfileId, from_date, to_date)
+        search: Free text search string
+        sort_by: Field to sort by
+        sort_order: Sort order ('asc' or 'desc')
+        include: List of fields to include in response
+        current_user: Current user for authorization (not implemented yet)
+
+    Returns:
+        Dict with items and meta information
+    """
+    # Validate pagination
+    if per_page > 100:
+        per_page = 100
+    if per_page < 1:
+        per_page = 20
+    if page < 1:
+        page = 1
+
+    # Validate search length
+    if search and len(search) > 1024:
+        raise ValueError("Search query too long")
+
+    # Build base query
+    query = db.query(CoverLetter)
+
+    # Apply authorization filter (join with resumes to get user ownership)
+    # For now, skip auth since no user system is implemented
+    # if current_user and not current_user.is_admin:
+    #     query = query.join(Resume, CoverLetter.resumeId == Resume.id)\
+    #                  .filter(Resume.userId == current_user.id)
+
+    # Apply filters
+    if filters:
+        if 'resumeId' in filters and filters['resumeId']:
+            query = query.filter(CoverLetter.resumeId == filters['resumeId'])
+
+        if 'jobProfileId' in filters and filters['jobProfileId']:
+            query = query.filter(CoverLetter.jobProfileId == filters['jobProfileId'])
+
+        if 'from_date' in filters and filters['from_date']:
+            try:
+                from_datetime = datetime.fromisoformat(filters['from_date'].replace('Z', '+00:00'))
+                query = query.filter(CoverLetter.createdAt >= from_datetime)
+            except ValueError:
+                raise ValueError("Invalid from_date format")
+
+        if 'to_date' in filters and filters['to_date']:
+            try:
+                to_datetime = datetime.fromisoformat(filters['to_date'].replace('Z', '+00:00'))
+                query = query.filter(CoverLetter.createdAt <= to_datetime)
+            except ValueError:
+                raise ValueError("Invalid to_date format")
+
+    # Apply search
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                CoverLetter.title.ilike(search_term),
+                CoverLetter.finalContent.ilike(search_term)
+            )
+        )
+
+    # Get total count for pagination
+    total = query.count()
+
+    # Apply sorting
+    sort_column = getattr(CoverLetter, sort_by, CoverLetter.createdAt)
+    if sort_order.lower() == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+
+    # Apply pagination
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+
+    # Determine which columns to load
+    include_final_content = include and 'finalContent' in include
+
+    # Execute query
+    cover_letters = query.all()
+
+    # Format results
+    items = []
+    for cl in cover_letters:
+        item = {
+            'id': cl.id,
+            'title': cl.title,
+            'jobDetails': cl.jobDetails,
+            'resumeId': cl.resumeId,
+            'jobProfileId': cl.jobProfileId,
+            'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
+            'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,
+            'wordCount': cl.wordCount,
+            'atsScore': cl.atsScore
+        }
+
+        if include_final_content:
+            item['finalContent'] = cl.finalContent
+
+        items.append(item)
+
+    # Calculate pagination metadata
+    total_pages = (total + per_page - 1) // per_page
+
+    logger.info(f"Listed cover letters: page={page}, per_page={per_page}, total={total}, filters={filters}, search='{search}'")
+
+    return {
+        'items': items,
+        'meta': {
+            'page': page,
+            'perPage': per_page,
+            'total': total,
+            'totalPages': total_pages
+        }
+    }

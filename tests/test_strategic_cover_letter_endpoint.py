@@ -194,3 +194,114 @@ def test_response_model_validation():
     )
     assert api_response.status == 201
     assert api_response.data.finalContent == "Full content"
+
+
+@pytest.mark.asyncio
+async def test_list_cover_letters_endpoint_success():
+    """Test successful listing of cover letters via API"""
+    from app.api.v1.endpoints.cover_letters import list_cover_letters_endpoint
+    from unittest.mock import patch
+
+    # Mock the service result
+    mock_service_result = {
+        'items': [
+            {
+                'id': 'test-id-1',
+                'title': 'Test Cover Letter 1',
+                'jobDetails': {'title': 'Developer', 'company': 'Tech Corp'},
+                'resumeId': 'test-resume-123',
+                'jobProfileId': None,
+                'createdAt': '2024-01-01T00:00:00',
+                'updatedAt': '2024-01-01T00:00:00',
+                'wordCount': 150,
+                'atsScore': 8
+            }
+        ],
+        'meta': {
+            'page': 1,
+            'perPage': 20,
+            'total': 1,
+            'totalPages': 1
+        }
+    }
+
+    with patch('app.api.v1.endpoints.cover_letters.list_cover_letters', return_value=mock_service_result):
+        response = await list_cover_letters_endpoint()
+
+        assert response.status == 200
+        assert response.message == "Cover letters retrieved successfully"
+        assert len(response.data.items) == 1
+        assert response.data.meta.total == 1
+
+
+@pytest.mark.asyncio
+async def test_list_cover_letters_endpoint_with_filters():
+    """Test listing with query parameters"""
+    from app.api.v1.endpoints.cover_letters import list_cover_letters_endpoint
+    from unittest.mock import patch
+
+    mock_service_result = {
+        'items': [],
+        'meta': {
+            'page': 1,
+            'perPage': 20,
+            'total': 0,
+            'totalPages': 0
+        }
+    }
+
+    with patch('app.api.v1.endpoints.cover_letters.list_cover_letters', return_value=mock_service_result) as mock_service:
+        response = await list_cover_letters_endpoint(
+            resumeId="test-resume-123",
+            jobProfileId="test-job-456",
+            search="engineer",
+            page=2,
+            perPage=10,
+            sortBy="wordCount",
+            sortOrder="desc",
+            include="finalContent"
+        )
+
+        # Verify service was called with correct parameters
+        mock_service.assert_called_once()
+        call_args = mock_service.call_args
+        assert call_args[1]['filters']['resumeId'] == "test-resume-123"
+        assert call_args[1]['filters']['jobProfileId'] == "test-job-456"
+        assert call_args[1]['search'] == "engineer"
+        assert call_args[1]['page'] == 2
+        assert call_args[1]['per_page'] == 10
+        assert call_args[1]['sort_by'] == "wordCount"
+        assert call_args[1]['sort_order'] == "desc"
+        assert call_args[1]['include'] == ["finalContent"]
+
+        assert response.status == 200
+
+
+@pytest.mark.asyncio
+async def test_list_cover_letters_endpoint_validation_error():
+    """Test endpoint with validation error"""
+    from app.api.v1.endpoints.cover_letters import list_cover_letters_endpoint
+    from unittest.mock import patch
+    from fastapi import HTTPException
+
+    with patch('app.api.v1.endpoints.cover_letters.list_cover_letters', side_effect=ValueError("Invalid search")):
+        with pytest.raises(HTTPException) as exc_info:
+            await list_cover_letters_endpoint(search="a" * 1025)
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid search" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_list_cover_letters_endpoint_server_error():
+    """Test endpoint with server error"""
+    from app.api.v1.endpoints.cover_letters import list_cover_letters_endpoint
+    from unittest.mock import patch
+    from fastapi import HTTPException
+
+    with patch('app.api.v1.endpoints.cover_letters.list_cover_letters', side_effect=Exception("Database error")):
+        with pytest.raises(HTTPException) as exc_info:
+            await list_cover_letters_endpoint()
+
+        assert exc_info.value.status_code == 500
+        assert "Database error" in str(exc_info.value.detail)
