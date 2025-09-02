@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.theme import Theme, ThemeType, ThemePackage
 from app.db.session import get_db
+from sqlalchemy.exc import IntegrityError
 
 async def create_theme(
     db: Session,
@@ -56,6 +57,12 @@ async def create_theme_package(
     Returns:
         Created ThemePackage object
     """
+    # Validate referenced themes exist (FK RESTRICT)
+    resume_theme = db.query(Theme).filter(Theme.id == resume_template_id).first()
+    cover_theme = db.query(Theme).filter(Theme.id == cover_letter_template_id).first()
+    if not resume_theme or not cover_theme:
+        raise ValueError("Referenced Theme IDs must exist (FK RESTRICT)")
+
     package = ThemePackage(
         name=name,
         description=description,
@@ -63,6 +70,11 @@ async def create_theme_package(
         cover_letter_template_id=cover_letter_template_id
     )
     db.add(package)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        # Likely unique pair violation or FK issue
+        raise e
     db.refresh(package)
     return package
