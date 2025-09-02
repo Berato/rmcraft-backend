@@ -45,6 +45,8 @@ from app.tools.get_url_contents import get_url_contents
 from app.agents.cover_letter.analyst_agent import create_cover_letter_analyst_agent, run_cover_letter_analysis
 from app.agents.cover_letter.writer_agent import create_cover_letter_writer_agent, run_cover_letter_writing
 from app.agents.cover_letter.editor_agent import create_cover_letter_editor_agent, run_cover_letter_editing
+from app.db.session import SessionLocal
+from app.services.cover_letter_service import save_cover_letter
 
 
 def process_resume_for_chroma(resume_json: dict) -> tuple[list[str], list[dict], list[str]]:
@@ -127,7 +129,8 @@ def process_resume_for_chroma(resume_json: dict) -> tuple[list[str], list[dict],
 async def cover_letter_orchestrator(
     resume_id: str,
     job_description_url: str,
-    optional_prompt: Optional[str] = None
+    optional_prompt: Optional[str] = None,
+    save_to_db: bool = True
 ) -> Dict[str, Any]:
     """
     Main orchestrator for the strategic cover letter generation workflow.
@@ -253,6 +256,21 @@ async def cover_letter_orchestrator(
         "wordCount": editing_result.get("word_count", 0),
         "atsScore": editing_result.get("ats_score", 7)
     }
+
+    # Persist to database if requested
+    if save_to_db:
+        print("💾 Step 9: Saving cover letter to database...")
+        db = SessionLocal()
+        try:
+            saved_cover_letter = save_cover_letter(response_data, db)
+            response_data['coverLetterId'] = saved_cover_letter['id']
+            print(f"✅ Cover letter saved with ID: {saved_cover_letter['id']}")
+        except Exception as e:
+            print(f"⚠️ Failed to save cover letter to database: {e}")
+            # Don't fail the entire request, just log the error
+            response_data['persistenceError'] = str(e)
+        finally:
+            db.close()
 
     print("✅ Strategic cover letter generation completed!")
     return response_data

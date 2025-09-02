@@ -17,6 +17,7 @@ class StrategicCoverLetterRequest(BaseModel):
     resumeId: str
     jobDescriptionUrl: str
     prompt: Optional[str] = None
+    saveToDb: bool = True
 
 
 class JobProfileDetails(BaseModel):
@@ -42,6 +43,8 @@ class StrategicCoverLetterResponse(BaseModel):
     updatedAt: str
     wordCount: int = 0
     atsScore: int = 7
+    coverLetterId: Optional[str] = None
+    persistenceError: Optional[str] = None
 
 
 class CoverLetterAPIResponse(BaseModel):
@@ -74,7 +77,8 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
         cover_letter_data = await cover_letter_orchestrator(
             resume_id=request.resumeId,
             job_description_url=request.jobDescriptionUrl,
-            optional_prompt=request.prompt
+            optional_prompt=request.prompt,
+            save_to_db=request.saveToDb
         )
 
         # Validate the response structure
@@ -100,7 +104,9 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
             createdAt=cover_letter_data.get("createdAt", ""),
             updatedAt=cover_letter_data.get("updatedAt", ""),
             wordCount=cover_letter_data.get("wordCount", 0),
-            atsScore=cover_letter_data.get("atsScore", 7)
+            atsScore=cover_letter_data.get("atsScore", 7),
+            coverLetterId=cover_letter_data.get("coverLetterId"),
+            persistenceError=cover_letter_data.get("persistenceError")
         )
 
         print("✅ Strategic cover letter generated successfully")

@@ -6,6 +6,13 @@ Service layer for cover letter operations, including CRUD utilities.
 
 from typing import Any, Dict, Optional
 from datetime import datetime
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+import logging
+
+from app.models.cover_letter import CoverLetter
+
+logger = logging.getLogger(__name__)
 
 
 def validate_cover_letter_data(cover_letter_data: Dict[str, Any]) -> bool:
@@ -107,3 +114,98 @@ def sanitize_cover_letter_content(content: str) -> str:
     # Basic sanitization - remove any potentially harmful content
     # In a real implementation, you might want more sophisticated sanitization
     return content.strip()
+
+
+def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bool = False) -> Dict[str, Any]:
+    """
+    Save a cover letter to the database.
+
+    Args:
+        cover_letter_data: The cover letter data to save
+        db: Database session
+        upsert: If True, update existing record if found (not implemented yet)
+
+    Returns:
+        Dict containing the saved cover letter data with id
+
+    Raises:
+        ValueError: If validation fails
+        Exception: For database errors
+    """
+    try:
+        # Validate the data
+        if not validate_cover_letter_data(cover_letter_data):
+            raise ValueError("Invalid cover letter data structure")
+
+        # Format for storage
+        formatted_data = format_cover_letter_for_storage(cover_letter_data)
+
+        # Sanitize content
+        formatted_data['finalContent'] = sanitize_cover_letter_content(formatted_data['finalContent'])
+        formatted_data['openingParagraph'] = sanitize_cover_letter_content(formatted_data['openingParagraph'])
+        formatted_data['closingParagraph'] = sanitize_cover_letter_content(formatted_data['closingParagraph'])
+
+        # Sanitize body paragraphs
+        if 'bodyParagraphs' in formatted_data and isinstance(formatted_data['bodyParagraphs'], list):
+            formatted_data['bodyParagraphs'] = [
+                sanitize_cover_letter_content(para) for para in formatted_data['bodyParagraphs']
+            ]
+
+        # Sanitize company connection if present
+        if 'companyConnection' in formatted_data and formatted_data['companyConnection']:
+            formatted_data['companyConnection'] = sanitize_cover_letter_content(formatted_data['companyConnection'])
+
+        # Create the model instance
+        cover_letter = CoverLetter(
+            title=formatted_data.get('title'),
+            jobDetails=formatted_data.get('jobDetails'),
+            openingParagraph=formatted_data.get('openingParagraph'),
+            bodyParagraphs=formatted_data.get('bodyParagraphs'),
+            companyConnection=formatted_data.get('companyConnection'),
+            closingParagraph=formatted_data.get('closingParagraph'),
+            tone=formatted_data.get('tone'),
+            finalContent=formatted_data.get('finalContent'),
+            resumeId=formatted_data.get('resumeId'),
+            jobProfileId=formatted_data.get('jobProfileId'),
+            wordCount=formatted_data.get('wordCount'),
+            atsScore=formatted_data.get('atsScore'),
+            metadata=formatted_data.get('metadata')
+        )
+
+        # Add to session and commit
+        db.add(cover_letter)
+        db.commit()
+        db.refresh(cover_letter)
+
+        # Log success
+        logger.info(f"Cover letter saved successfully with id: {cover_letter.id}, resumeId: {cover_letter.resumeId}")
+
+        # Return the saved data as dict
+        return {
+            'id': cover_letter.id,
+            'title': cover_letter.title,
+            'jobDetails': cover_letter.jobDetails,
+            'openingParagraph': cover_letter.openingParagraph,
+            'bodyParagraphs': cover_letter.bodyParagraphs,
+            'companyConnection': cover_letter.companyConnection,
+            'closingParagraph': cover_letter.closingParagraph,
+            'tone': cover_letter.tone,
+            'finalContent': cover_letter.finalContent,
+            'resumeId': cover_letter.resumeId,
+            'jobProfileId': cover_letter.jobProfileId,
+            'wordCount': cover_letter.wordCount,
+            'atsScore': cover_letter.atsScore,
+            'metadata': cover_letter.metadata_json,
+            'createdAt': cover_letter.createdAt.isoformat() if cover_letter.createdAt else None,
+            'updatedAt': cover_letter.updatedAt.isoformat() if cover_letter.updatedAt else None
+        }
+
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error saving cover letter: {e}")
+        raise ValueError("Cover letter already exists or constraint violation")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error saving cover letter: {e}")
+        raise Exception(f"Failed to save cover letter: {str(e)}")
