@@ -6,7 +6,7 @@ import json
 
 def simulate_original_error():
     """Simulate the original error that was happening"""
-    print("❌ Original error case:")
+    print("\u274c Original error case:")
     print("The request was expecting resume_id and job_description_url in the request body,")
     print("but the endpoint was defined with separate Body parameters instead of a single request model.")
     print("\nOriginal error:")
@@ -30,7 +30,7 @@ def simulate_original_error():
 
 def simulate_fixed_request():
     """Simulate how the request should work now"""
-    print("\n✅ Fixed request case:")
+    print("\n\u2705 Fixed request case:")
     print("Now the endpoint expects a single request body with both fields:")
     
     # This is how the request should look now
@@ -90,7 +90,7 @@ def simulate_fixed_request():
                     "website": "http://www.berato.tech"
                 }
             ],
-            "summary": "Senior Software Engineer with 13+ years of experience building front-end‑leaning full‑stack products using TypeScript, React, and Next.js. At Target, led front‑end for enterprise 3D asset management app and built internal AI platforms, driving LLM/agent initiatives that contributed to >$50M in new revenue.",
+            "summary": "Senior Software Engineer with 13+ years of experience building front-end\u2011leaning full\u2011stack products using TypeScript, React, and Next.js. At Target, led front\u2011end for enterprise 3D asset management app and built internal AI platforms, driving LLM/agent initiatives that contributed to >$50M in new revenue.",
             "name": "Tailored Resume - Front-End Software Engineer @ Grammarly - Strategic Analysis Complete"
         }
     }
@@ -100,7 +100,7 @@ def simulate_fixed_request():
 
 def show_implementation_details():
     """Show the key changes made"""
-    print("\n🔧 Key implementation changes:")
+    print("\n\ud83d\udd27 Key implementation changes:")
     print("\n1. Fixed API Endpoint Structure:")
     print("   BEFORE: @router.post('/strategic-analysis')")
     print("           async def run_strategic_analysis(")
@@ -125,8 +125,8 @@ def show_implementation_details():
     print("   - Schema assembler for data validation and repair")
 
 if __name__ == "__main__":
-    print("🔍 Strategic Analysis Endpoint: Before vs After\n")
+    print("\ud83d\udd0d Strategic Analysis Endpoint: Before vs After\n")
     simulate_original_error()
     simulate_fixed_request()
     show_implementation_details()
-    print("\n✅ All fixes have been implemented! The endpoint should work correctly now.")
+    print("\n\u2705 All fixes have been implemented! The endpoint should work correctly now.")

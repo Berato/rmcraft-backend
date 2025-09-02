@@ -24,12 +24,12 @@ def test_endpoint_request_structure():
             job_description_url="https://example.com/job"
         )
         
-        print("✅ Request structure test passed!")
-        print(f"📋 Request: {request}")
+        print("\u2705 Request structure test passed!")
+        print(f"\ud83d\udccb Request: {request}")
         return True
         
     except Exception as e:
-        print(f"❌ Request structure test failed: {e}")
+        print(f"\u274c Request structure test failed: {e}")
         return False
 
 def test_response_schema():
@@ -49,12 +49,12 @@ def test_response_schema():
         }
         
         schema = ResumeAnalysisSchema(**mock_data)
-        print("✅ Response schema test passed!")
-        print(f"📋 Schema: {schema}")
+        print("\u2705 Response schema test passed!")
+        print(f"\ud83d\udccb Schema: {schema}")
         return True
         
     except Exception as e:
-        print(f"❌ Response schema test failed: {e}")
+        print(f"\u274c Response schema test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -67,7 +67,7 @@ def test_mock_adk():
         
         # Test thinking config
         thinking_config = mock_adk.MockThinkingConfig(include_thoughts=True, thinking_budget=512)
-        print(f"✅ ThinkingConfig: {thinking_config.include_thoughts}, {thinking_config.thinking_budget}")
+        print(f"\u2705 ThinkingConfig: {thinking_config.include_thoughts}, {thinking_config.thinking_budget}")
         
         # Test generate content config with response schema
         config = mock_adk.MockGenerateContentConfig(
@@ -80,8 +80,8 @@ def test_mock_adk():
                 }
             }
         )
-        print(f"✅ GenerateContentConfig: {config.temperature}, {config.response_mime_type}")
-        print(f"✅ Response schema: {config.response_schema}")
+        print(f"\u2705 GenerateContentConfig: {config.temperature}, {config.response_mime_type}")
+        print(f"\u2705 Response schema: {config.response_schema}")
         
         # Test LLM Agent
         agent = mock_adk.MockLlmAgent(
@@ -91,24 +91,24 @@ def test_mock_adk():
             instruction="Test instruction",
             generate_content_config=config
         )
-        print(f"✅ LlmAgent: {agent.name}")
+        print(f"\u2705 LlmAgent: {agent.name}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Mock ADK test failed: {e}")
+        print(f"\u274c Mock ADK test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
-    print("🔄 Testing strategic analysis implementation...")
+    print("\ud83d\udd04 Testing strategic analysis implementation...")
     
     test1 = test_endpoint_request_structure()
     test2 = test_response_schema()
     test3 = test_mock_adk()
     
     if all([test1, test2, test3]):
-        print("\n✅ All tests passed! The strategic analysis implementation is working.")
+        print("\n\u2705 All tests passed! The strategic analysis implementation is working.")
     else:
-        print("\n❌ Some tests failed. Please check the implementation.")
+        print("\n\u274c Some tests failed. Please check the implementation.")

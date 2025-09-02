@@ -60,11 +60,11 @@ async def test_strategic_endpoint():
             with patch('app.tools.get_url_contents.get_url_contents', return_value=["Job description content"]):
                 from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
                 
-                print("🔄 Running strategic analysis...")
+                print("\ud83d\udd04 Running strategic analysis...")
                 result = await strategic_resume_agent('test_resume_id', 'https://example.com/job')
                 
-                print("✅ Strategic analysis completed!")
-                print("📋 Result structure:")
+                print("\u2705 Strategic analysis completed!")
+                print("\ud83d\udccb Result structure:")
                 print(json.dumps(result, indent=2))
                 
                 # Check if the result has the expected structure
@@ -72,14 +72,14 @@ async def test_strategic_endpoint():
                 missing_fields = [field for field in required_fields if field not in result]
                 
                 if missing_fields:
-                    print(f"⚠️ Missing fields: {missing_fields}")
+                    print(f"\u26a0\ufe0f Missing fields: {missing_fields}")
                 else:
-                    print("✅ All required fields present!")
+                    print("\u2705 All required fields present!")
                     
                 return result
                 
     except Exception as e:
-        print(f"❌ Test failed: {e}")
+        print(f"\u274c Test failed: {e}")
         import traceback
         traceback.print_exc()
         return None

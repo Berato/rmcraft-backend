@@ -22,14 +22,14 @@ def test_schemas_only():
             endDate="2023-01",
             responsibilities=["Test responsibility"]
         )
-        print(f"✅ Experience: {experience}")
+        print(f"\u2705 Experience: {experience}")
         
         skill = Skill(
             id="skill_1",
             name="Python",
             level=5
         )
-        print(f"✅ Skill: {skill}")
+        print(f"\u2705 Skill: {skill}")
         
         project = Project(
             id="proj_1",
@@ -37,7 +37,7 @@ def test_schemas_only():
             description="Test description",
             url="https://example.com"
         )
-        print(f"✅ Project: {project}")
+        print(f"\u2705 Project: {project}")
         
         education = Education(
             id="edu_1",
@@ -46,13 +46,13 @@ def test_schemas_only():
             startDate="2015-01",
             endDate="2019-01"
         )
-        print(f"✅ Education: {education}")
+        print(f"\u2705 Education: {education}")
         
         contact = ContactInfo(
             email="test@example.com",
             phone="123-456-7890"
         )
-        print(f"✅ Contact: {contact}")
+        print(f"\u2705 Contact: {contact}")
         
         # Test the main analysis schema
         analysis = ResumeAnalysisSchema(
@@ -64,12 +64,12 @@ def test_schemas_only():
             summary="Test summary",
             name="Test Name"
         )
-        print(f"✅ ResumeAnalysisSchema: {analysis}")
+        print(f"\u2705 ResumeAnalysisSchema: {analysis}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Schema test failed: {e}")
+        print(f"\u274c Schema test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -89,7 +89,7 @@ def test_request_structure():
             job_description_url="https://example.com/job"
         )
         
-        print(f"✅ Request structure: {request}")
+        print(f"\u2705 Request structure: {request}")
         
         # Test JSON serialization
         try:
@@ -98,37 +98,37 @@ def test_request_structure():
             # Pydantic v1 compatibility
             request_json = request.dict()
         
-        print(f"✅ Request JSON: {request_json}")
+        print(f"\u2705 Request JSON: {request_json}")
         
         # Test that this matches the expected API body format
         expected_keys = ["resume_id", "job_description_url"]
         actual_keys = list(request_json.keys())
         
         if set(expected_keys) == set(actual_keys):
-            print("✅ Request body structure matches expected format!")
+            print("\u2705 Request body structure matches expected format!")
             return True
         else:
-            print(f"❌ Key mismatch. Expected: {expected_keys}, Got: {actual_keys}")
+            print(f"\u274c Key mismatch. Expected: {expected_keys}, Got: {actual_keys}")
             return False
             
     except Exception as e:
-        print(f"❌ Request test failed: {e}")
+        print(f"\u274c Request test failed: {e}")
         return False
 
 if __name__ == "__main__":
-    print("🔄 Testing API structures...")
+    print("\ud83d\udd04 Testing API structures...")
     
     test1 = test_schemas_only()
     test2 = test_request_structure()
     
     if all([test1, test2]):
-        print("\n✅ All API structure tests passed!")
-        print("\n📋 Summary of fixes implemented:")
-        print("1. ✅ Added ResumeAnalysisSchema to schemas")
-        print("2. ✅ Fixed endpoint to use request body instead of separate Body parameters")
-        print("3. ✅ Updated strategic agent with Google ADK structured output")
-        print("4. ✅ Implemented thinking mode with response schemas")
-        print("5. ✅ Updated mock ADK to support structured output parameters")
-        print("\n🎯 The API endpoint should now work correctly and avoid the field validation errors!")
+        print("\n\u2705 All API structure tests passed!")
+        print("\n\ud83d\udccb Summary of fixes implemented:")
+        print("1. \u2705 Added ResumeAnalysisSchema to schemas")
+        print("2. \u2705 Fixed endpoint to use request body instead of separate Body parameters")
+        print("3. \u2705 Updated strategic agent with Google ADK structured output")
+        print("4. \u2705 Implemented thinking mode with response schemas")
+        print("5. \u2705 Updated mock ADK to support structured output parameters")
+        print("\n\ud83c\udfaf The API endpoint should now work correctly and avoid the field validation errors!")
     else:
-        print("\n❌ Some API structure tests failed.")
+        print("\n\u274c Some API structure tests failed.")

@@ -25,14 +25,14 @@ def test_endpoint():
         print(f"Response: {response.json()}")
         
         if response.status_code == 200:
-            print("✅ Endpoint is working correctly!")
+            print("\u2705 Endpoint is working correctly!")
         else:
-            print(f"❌ Endpoint returned error: {response.status_code}")
+            print(f"\u274c Endpoint returned error: {response.status_code}")
             
     except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to server. Make sure the FastAPI server is running on localhost:8000")
+        print("\u274c Cannot connect to server. Make sure the FastAPI server is running on localhost:8000")
     except Exception as e:
-        print(f"❌ Error testing endpoint: {e}")
+        print(f"\u274c Error testing endpoint: {e}")
 
 if __name__ == "__main__":
     print("Testing Strategic Resume Analysis Endpoint...")

@@ -82,9 +82,9 @@ def test_with_mock_database():
         "job_description_url": "https://example.com/job-posting"
     }
     
-    print("🧪 Testing Strategic Resume Analysis Endpoint with Mock Database")
-    print(f"📡 URL: {url}")
-    print(f"📋 Request: {test_data}")
+    print("\ud83e\uddea Testing Strategic Resume Analysis Endpoint with Mock Database")
+    print(f"\ud83d\udce1 URL: {url}")
+    print(f"\ud83d\udccb Request: {test_data}")
     
     # Mock the database to return our test resume
     mock_resume = create_mock_resume()
@@ -94,11 +94,11 @@ def test_with_mock_database():
     
     try:
         response = requests.post(url, data=test_data)
-        print(f"📊 Status Code: {response.status_code}")
+        print(f"\ud83d\udcca Status Code: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
-            print("✅ Success! Response structure:")
+            print("\u2705 Success! Response structure:")
             print(f"   Status: {data.get('status')}")
             print(f"   Message: {data.get('message')}")
             
@@ -113,9 +113,9 @@ def test_with_mock_database():
                         required_fields = ['id', 'company', 'position']
                         missing = [f for f in required_fields if f not in exp]
                         if missing:
-                            print(f"   ❌ Experience {i} missing: {missing}")
+                            print(f"   \u274c Experience {i} missing: {missing}")
                         else:
-                            print(f"   ✅ Experience {i} has required fields")
+                            print(f"   \u2705 Experience {i} has required fields")
                 
                 # Validate skills have required fields  
                 if 'skills' in resume_data:
@@ -123,9 +123,9 @@ def test_with_mock_database():
                         required_fields = ['id', 'name', 'level']
                         missing = [f for f in required_fields if f not in skill]
                         if missing:
-                            print(f"   ❌ Skill {i} missing: {missing}")
+                            print(f"   \u274c Skill {i} missing: {missing}")
                         else:
-                            print(f"   ✅ Skill {i} has required fields")
+                            print(f"   \u2705 Skill {i} has required fields")
                 
                 # Validate projects have required fields
                 if 'projects' in resume_data:
@@ -133,14 +133,14 @@ def test_with_mock_database():
                         required_fields = ['id', 'name', 'description', 'url']
                         missing = [f for f in required_fields if f not in proj]
                         if missing:
-                            print(f"   ❌ Project {i} missing: {missing}")
+                            print(f"   \u274c Project {i} missing: {missing}")
                         else:
-                            print(f"   ✅ Project {i} has required fields")
+                            print(f"   \u2705 Project {i} has required fields")
             
             return True
             
         elif response.status_code == 404 or "Resume not found" in response.text:
-            print("✅ Expected behavior: Resume not found error")
+            print("\u2705 Expected behavior: Resume not found error")
             print("   This confirms the BaseModel validation is working correctly")
             print("   The system properly rejects non-existent resume IDs")
             return True
@@ -148,21 +148,21 @@ def test_with_mock_database():
         else:
             try:
                 error_data = response.json()
-                print(f"❌ Error Response: {error_data}")
+                print(f"\u274c Error Response: {error_data}")
             except:
-                print(f"❌ Error Response: {response.text}")
+                print(f"\u274c Error Response: {response.text}")
             return False
             
     except Exception as e:
-        print(f"❌ Request failed: {e}")
+        print(f"\u274c Request failed: {e}")
         return False
 
 if __name__ == "__main__":
     success = test_with_mock_database()
     if success:
-        print("\n🎉 Test validation completed!")
-        print("✅ BaseModel changes are working correctly")
-        print("✅ Schema validation is enforced")
-        print("✅ Resume not found errors are handled properly")
+        print("\n\ud83c\udf89 Test validation completed!")
+        print("\u2705 BaseModel changes are working correctly")
+        print("\u2705 Schema validation is enforced")
+        print("\u2705 Resume not found errors are handled properly")
     else:
-        print("\n💥 Test failed!")
+        print("\n\ud83d\udca5 Test failed!")
