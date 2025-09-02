@@ -360,10 +360,15 @@ class ThemeComponent(BaseModel):
 
 
 class ThemePackage(BaseModel):
+    id: str
     name: str
     description: str
-    resumeTemplate: ThemeComponent
-    coverLetterTemplate: ThemeComponent
+    resumeTemplate: Theme
+    coverLetterTemplate: Theme
+    createdAt: datetime
+    updatedAt: datetime
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
 
 
 class ResumeAnalysisSchema(BaseModel):
