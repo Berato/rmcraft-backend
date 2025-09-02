@@ -1,10 +1,11 @@
 from fastapi import FastAPI
-from app.api.v1.endpoints import resumes, themes
+from app.api.v1.endpoints import resumes, themes, cover_letters
 
 app = FastAPI(title="RMCraft API", version="0.2.0")
 
 app.include_router(resumes.router, prefix="/api/v1/resumes", tags=["resumes"])
 app.include_router(themes.router, prefix="/api/v1/themes", tags=["themes"])
+app.include_router(cover_letters.router, prefix="/api/v1/cover-letters", tags=["cover-letters"])
 
 
 @app.get("/health", tags=["health"]) 
