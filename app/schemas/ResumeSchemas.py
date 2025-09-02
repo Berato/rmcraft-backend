@@ -58,7 +58,7 @@ class Project(BaseModel):
     id: str
     name: str
     description: str
-    url: str
+    url: Optional[str] = None
 
 
 class Skill(BaseModel):
@@ -312,6 +312,11 @@ class SummaryAgentOutPutSchema(BaseModel):
     summary: str
 
 
+class NameAgentOutPutSchema(BaseModel):
+    # Agent output for a simple name field. Keep optional behavior at assembler level.
+    name: str
+
+
 class DesignBriefOutputSchema(BaseModel):
     layout_description: str = Field(description="A detailed description of the resume layout (e.g., 'two-column, minimalist').")
     color_palette: Dict[str, str] = Field(description="A dictionary mapping color roles (e.g., 'primary', 'accent') to hex color codes.")
@@ -360,5 +365,18 @@ class ThemePackage(BaseModel):
     updatedAt: datetime
     coverLetterTemplate: Optional[Theme] = None
     resumeTemplate: Optional[Theme] = None
+
+    model_config = pydantic.ConfigDict(from_attributes=True)
+
+
+class ResumeAnalysisSchema(BaseModel):
+    """Schema for strategic resume analysis response data"""
+    experiences: List[Experience] = Field(default_factory=list)
+    skills: List[Skill] = Field(default_factory=list) 
+    projects: List[Project] = Field(default_factory=list)
+    education: List[Education] = Field(default_factory=list)
+    contact_info: List[ContactInfo] = Field(default_factory=list)
+    summary: str = ""
+    name: str = ""
 
     model_config = pydantic.ConfigDict(from_attributes=True)

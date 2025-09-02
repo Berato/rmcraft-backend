@@ -14,15 +14,15 @@ def test_endpoint_definition():
         
         strategic_route = next((route for route in router.routes if route.path == "/strategic-analysis"), None)
         if strategic_route:
-            print("✅ Strategic analysis endpoint is properly defined")
+            print("\u2705 Strategic analysis endpoint is properly defined")
             print(f"   Methods: {strategic_route.methods}")
             return True
         else:
-            print("❌ Strategic analysis endpoint not found")
+            print("\u274c Strategic analysis endpoint not found")
             return False
             
     except Exception as e:
-        print(f"❌ Error testing endpoint definition: {e}")
+        print(f"\u274c Error testing endpoint definition: {e}")
         return False
 
 def test_pydantic_schemas():
@@ -35,7 +35,7 @@ def test_pydantic_schemas():
             resume_id="test-123",
             job_description_url="https://example.com/job"
         )
-        print(f"✅ Request schema works: {request.model_dump()}")
+        print(f"\u2705 Request schema works: {request.model_dump()}")
         
         # Test response schema  
         response = StrategicResumeResponse(
@@ -43,21 +43,21 @@ def test_pydantic_schemas():
             message="Test message",
             data="Test data"
         )
-        print(f"✅ Response schema works: {response.model_dump()}")
+        print(f"\u2705 Response schema works: {response.model_dump()}")
         return True
         
     except Exception as e:
-        print(f"❌ Error testing schemas: {e}")
+        print(f"\u274c Error testing schemas: {e}")
         return False
 
 def test_strategic_agent_import():
     """Test that the strategic agent can be imported"""
     try:
         from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
-        print("✅ Strategic resume agent imported successfully")
+        print("\u2705 Strategic resume agent imported successfully")
         return True
     except Exception as e:
-        print(f"❌ Error importing strategic agent: {e}")
+        print(f"\u274c Error importing strategic agent: {e}")
         return False
 
 if __name__ == "__main__":
@@ -80,6 +80,6 @@ if __name__ == "__main__":
     print(f"Results: {passed}/{len(tests)} tests passed")
     
     if passed == len(tests):
-        print("🎉 All tests passed! The endpoint is ready to use.")
+        print("\ud83c\udf89 All tests passed! The endpoint is ready to use.")
     else:
-        print("⚠️ Some tests failed. Please check the errors above.")
+        print("\u26a0\ufe0f Some tests failed. Please check the errors above.")

@@ -1,0 +1,16 @@
+These test files were moved from the repository root into this tests/ directory.
+If you see this file, the move automation ran.
+
+Original root tests moved here:
+- test_api_structure.py
+- test_assembler_quick.py
+- test_basemodel_validation.py
+- test_endpoint_simulation.py
+- test_full_validation.py
+- test_setup.py
+- test_strategic_components.py
+- test_strategic_comprehensive.py
+- test_strategic_endpoint.py
+- test_strategic_fix.py
+- test_strategic_simple.py
+- test_validation_fix.py

@@ -13,6 +13,7 @@ from app.services.resume_normalization import (
     normalize_personal_info,
 )
 from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
+import asyncio
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ class StrategicResumeResponse(BaseModel):
 class StrategicResumeRequest(BaseModel):
     resume_id: str = Field(..., description="The ID of the resume to analyze")
     job_description_url: str = Field(..., description="URL of the job description to analyze against")
-    design_prompt: str = Field(..., description="Design prompt for the resume customization")
+    theme_id: Optional[str] = Field(None, description="Optional theme ID for PDF generation")
 
 
 # normalization helpers moved to app.services.resume_normalization
@@ -89,53 +90,40 @@ def read_resume(resume_id: str, db: Session = Depends(get_db)):
 async def strategic_resume_analysis(
     resume_id: str = Form(...),
     job_description_url: str = Form(...),
-    design_prompt: str = Form(...),
-    inspiration_image: UploadFile = File(...),
+    theme_id: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     """
-    Analyze a resume strategically against a job description using AI agents and generate a custom PDF design.
+    Analyze a resume strategically against a job description using AI agents.
     
     This endpoint uses Google ADK agents to:
     - Parse and analyze the resume content
     - Extract relevant information from the job description URL
     - Match relevant experience, skills, and projects
     - Provide strategic recommendations for resume optimization
-    - Generate a custom PDF design based on inspiration image and design prompt
-    - Upload the PDF to Cloudinary and return the secure URL
     """
     try:
-        # Validate form data using Pydantic model
-        request_data = StrategicResumeRequest(
-            resume_id=resume_id,
-            job_description_url=job_description_url,
-            design_prompt=design_prompt
-        )
-        
         # Validate that the resume exists
         resume = crud_resume.get_resume(db, resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
-        # Read the uploaded image file
+        # Call the strategic resume agent with a safe timeout to avoid hanging requests
         try:
-            inspiration_image_data = await inspiration_image.read()
-            inspiration_image_mime_type = inspiration_image.content_type
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error reading uploaded image: {str(e)}")
-        
-        # Call the strategic resume agent with new parameters
-        result = await strategic_resume_agent(
-            resume_id=resume_id,
-            job_description_url=job_description_url,
-            design_prompt=design_prompt,
-            inspiration_image_data=inspiration_image_data,
-            inspiration_image_mime_type=inspiration_image_mime_type
-        )
+            result = await asyncio.wait_for(
+                strategic_resume_agent(
+                    resume_id=resume_id,
+                    job_description_url=job_description_url
+                ),
+                timeout=65.0,
+            )
+        except asyncio.TimeoutError:
+            # Agents didn't produce a final response in time — return a timeout to the client
+            raise HTTPException(status_code=504, detail="Strategic analysis timed out; try again or check agent logs")
         
         return {
             "status": 200,
-            "message": "Strategic analysis and PDF generation completed successfully",
+            "message": "Strategic analysis completed successfully",
             "data": result
         }
         

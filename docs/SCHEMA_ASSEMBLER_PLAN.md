@@ -77,9 +77,9 @@ Notes: limit LLM repairs to 1 retry per fragment to control cost and latency.
 ## Sub-agent (generator) guidelines
 
 - Generation config:
-  - `temperature = 0.5`
+  - `temperature = 0.0` (or 0.1 only when unavoidable).
   - `response_mime_type = "application/json"`.
-  - `thinking_config`: `include_thoughts=True`
+  - `thinking_config`: `include_thoughts=False`, minimal `thinking_budget`.
 
 - Prompt best-practices:
   - Explicit: "Return ONLY a JSON object. Start with `{` and end with `}`. No markdown, no commentary."
