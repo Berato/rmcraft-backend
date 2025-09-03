@@ -101,13 +101,6 @@ class ResumeCreate(ResumeBase):
     pass
 
 
-class ResumeResponse(ResumeBase):
-    id: str
-    createdAt: datetime
-    updatedAt: datetime
-
-    # pydantic v2: use model_config with ConfigDict to allow attribute access
-    model_config = pydantic.ConfigDict(from_attributes=True)
 
 
 # A concrete response model that matches the JSON shape returned by the DB/API
@@ -128,8 +121,7 @@ class ResumeResponse(BaseModel):
     themeId: Optional[str] = None
     createdAt: datetime
     updatedAt: datetime
-
-    model_config = pydantic.ConfigDict(from_attributes=True)
+    model_config = pydantic.ConfigDict(from_attributes=True, extra="allow")
 
 
 class ResumeListResponse(BaseModel):

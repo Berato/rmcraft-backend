@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 import json
 from app.crud import crud_resume
 from app.schemas.ResumeSchemas import ResumeResponse, ResumeListResponse, ResumeSingleResponse
+from app.workflows.resume.resume_creation_workflow import parse_resume_text_with_genai
 from app.db.session import get_db
+from app.services.pdf_service import extract_text_from_pdf
 from app.services.resume_normalization import (
     ensure_list_of_dicts,
     normalize_skills,
@@ -129,5 +131,26 @@ async def strategic_resume_analysis(
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/create-from-pdf", response_model=ResumeSingleResponse)
+async def create_resume_from_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Create a resume from a PDF file.
+    """
+    try:
+        # Read the PDF file
+        pdf_content = await file.read()
+        # Extract text from the PDF
+        text = extract_text_from_pdf(pdf_content)
+        # Create a new resume object by asking the AI to extract JSON matching our schema
+        try:
+            resume_obj: ResumeResponse = parse_resume_text_with_genai(text)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to parse resume via AI: {e}")
+
+        # At this point resume_obj is validated Pydantic model. Return it in the single-response envelope.
+        return {"status": 201, "message": "Resume created successfully", "data": resume_obj.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
