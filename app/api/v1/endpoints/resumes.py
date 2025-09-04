@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 import json
 from app.crud import crud_resume
 from app.schemas.ResumeSchemas import ResumeResponse, ResumeListResponse, ResumeSingleResponse
-from app.workflows.resume.resume_creation_workflow import parse_resume_text_with_genai
+from app.workflows.resume.simple_resume_parser import parse_resume_simple
 from app.db.session import get_db
 from app.services.pdf_service import extract_text_from_pdf
 from app.services.resume_normalization import (
@@ -135,9 +135,18 @@ async def strategic_resume_analysis(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/create-from-pdf", response_model=ResumeSingleResponse)
-async def create_resume_from_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def create_resume_from_pdf(
+    file: UploadFile = File(...),
+    user_id: Optional[str] = Form(None, description="User ID to associate with the resume"),
+    db: Session = Depends(get_db)
+):
     """
     Create a resume from a PDF file.
+    
+    Args:
+        file: PDF file to extract resume data from
+        user_id: Optional user ID to associate with the resume. If not provided, 
+                will use a default anonymous user approach.
     """
     try:
         # Read the PDF file
@@ -146,11 +155,40 @@ async def create_resume_from_pdf(file: UploadFile = File(...), db: Session = Dep
         text = extract_text_from_pdf(pdf_content)
         # Create a new resume object by asking the AI to extract JSON matching our schema
         try:
-            resume_obj: ResumeResponse = parse_resume_text_with_genai(text)
+            resume_obj: ResumeResponse = parse_resume_simple(text, user_id)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Failed to parse resume via AI: {e}")
 
-        # At this point resume_obj is validated Pydantic model. Return it in the single-response envelope.
-        return {"status": 201, "message": "Resume created successfully", "data": resume_obj.model_dump()}
+        # Save the resume to the database - no more complex userId handling needed!
+        try:
+            saved_resume = crud_resume.create_resume(db, resume_obj.model_dump())
+            
+            # Normalize the saved resume data for response
+            normalized_data = {
+                "id": getattr(saved_resume, "id", ""),
+                "userId": getattr(saved_resume, "userId", ""),
+                "name": getattr(saved_resume, "name", ""),
+                "summary": getattr(saved_resume, "summary", "") or "",
+                "personalInfo": normalize_personal_info(getattr(saved_resume, "personalInfo", None)),
+                "experience": ensure_list_of_dicts(getattr(saved_resume, "experience", None)),
+                "education": ensure_list_of_dicts(getattr(saved_resume, "education", None)),
+                "skills": normalize_skills(getattr(saved_resume, "skills", None)),
+                "projects": normalize_projects(getattr(saved_resume, "projects", None)),
+                "jobDescription": getattr(saved_resume, "jobDescription", None),
+                "jobProfileId": getattr(saved_resume, "jobProfileId", None),
+                "themeId": getattr(saved_resume, "themeId", None),
+                "createdAt": getattr(saved_resume, "createdAt", None),
+                "updatedAt": getattr(saved_resume, "updatedAt", None),
+            }
+            
+            return {"status": 201, "message": "Resume created successfully", "data": normalized_data}
+        except Exception as e:
+            # If the foreign key constraint fails, provide a better error message
+            if "foreign key constraint" in str(e) and "userId" in str(e):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid user_id provided. Please provide a valid user_id parameter or ensure the user exists in the system."
+                )
+            raise HTTPException(status_code=500, detail=f"Failed to save resume to database: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

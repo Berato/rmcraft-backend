@@ -1,5 +1,7 @@
 import json
 import logging
+import uuid
+from datetime import datetime
 from typing import Optional, Any
 
 try:
@@ -34,103 +36,17 @@ def parse_resume_text_with_genai(resume_text: str, api_key: Optional[str] = None
 
     # Make a text completion / chat call using function calling with cleaned schema
     try:
-        # Define a simplified schema compatible with Google GenAI
-        # Based on ResumeResponse but simplified for function calling
-        simple_resume_schema = {
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "Resume ID (leave null if not provided)"},
-                "userId": {"type": "string", "description": "User ID (leave null if not provided)"},
-                "name": {"type": "string", "description": "Resume name or title"},
-                "summary": {"type": "string", "description": "Resume summary or professional summary"},
-                "personalInfo": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {"type": "string", "description": "First name"},
-                        "lastName": {"type": "string", "description": "Last name"},
-                        "email": {"type": "string", "description": "Email address"},
-                        "phone": {"type": "string", "description": "Phone number"},
-                        "location": {"type": "string", "description": "Location/address"},
-                        "linkedin": {"type": "string", "description": "LinkedIn profile URL"},
-                        "website": {"type": "string", "description": "Personal website URL"},
-                        "title": {"type": "string", "description": "Professional title"},
-                        "summary": {"type": "string", "description": "Personal summary"}
-                    }
-                },
-                "experience": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "company": {"type": "string", "description": "Company name"},
-                            "position": {"type": "string", "description": "Job position/title"},
-                            "startDate": {"type": "string", "description": "Start date"},
-                            "endDate": {"type": "string", "description": "End date"},
-                            "responsibilities": {
-                                "type": "array", 
-                                "items": {"type": "string"},
-                                "description": "Job responsibilities and duties"
-                            }
-                        }
-                    }
-                },
-                "education": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "institution": {"type": "string", "description": "Educational institution"},
-                            "degree": {"type": "string", "description": "Degree obtained"},
-                            "fieldOfStudy": {"type": "string", "description": "Field of study"},
-                            "startDate": {"type": "string", "description": "Start date"},
-                            "endDate": {"type": "string", "description": "End date or graduation date"},
-                            "gpa": {"type": "string", "description": "GPA if mentioned"}
-                        }
-                    }
-                },
-                "skills": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "Skill name"},
-                            "category": {"type": "string", "description": "Skill category (technical, soft, etc.)"},
-                            "level": {"type": "string", "description": "Skill level if mentioned"}
-                        }
-                    }
-                },
-                "projects": {
-                    "type": "array",
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "name": {"type": "string", "description": "Project name"},
-                            "description": {"type": "string", "description": "Project description"},
-                            "technologies": {
-                                "type": "array", 
-                                "items": {"type": "string"},
-                                "description": "Technologies used"
-                            },
-                            "url": {"type": "string", "description": "Project URL or repository link"},
-                            "startDate": {"type": "string", "description": "Project start date"},
-                            "endDate": {"type": "string", "description": "Project end date"}
-                        }
-                    }
-                },
-                "jobDescription": {"type": "string", "description": "Target job description if mentioned"},
-                "jobProfileId": {"type": "string", "description": "Job profile ID if applicable"},
-                "themeId": {"type": "string", "description": "Resume theme ID if applicable"},
-                "createdAt": {"type": "string", "description": "Creation timestamp (leave null if not provided)"},
-                "updatedAt": {"type": "string", "description": "Update timestamp (leave null if not provided)"}
-            },
-            "required": []
-        }
+        # Generate JSON schema directly from the Pydantic model
+        resume_schema = ResumeResponse.model_json_schema()
+        
+        # Clean the schema to be compatible with Google GenAI function calling
+        cleaned_schema = _clean_schema_for_genai(resume_schema)
 
         # 3. Define function declaration using correct API
         extract_resume_function = types.FunctionDeclaration(
             name="extract_resume_info",
             description="Extracts information from a resume into a structured JSON object.",
-            parameters=simple_resume_schema
+            parameters=cleaned_schema
         )
 
         # 4. Create tool and model with correct SDK usage
@@ -140,8 +56,7 @@ def parse_resume_text_with_genai(resume_text: str, api_key: Optional[str] = None
         if api_key:
             genai.configure(api_key=api_key)
         
-        model = genai.GenerativeModel('gemini-1.5-pro', tools=[tool])
-
+        model = genai.GenerativeModel('gemini-2.5-pro', tools=[tool])
         # 5. Generate content with function calling
         response = model.generate_content(prompt)
 
@@ -184,62 +99,49 @@ def parse_resume_text_with_genai(resume_text: str, api_key: Optional[str] = None
         raise
 
 
-def _prepare_resume_data_for_validation(data: dict) -> dict:
-    """
-    Prepare the AI-extracted data for ResumeResponse validation by handling
-    missing required fields and type conversions.
-    """
-    from datetime import datetime
-    import uuid
+def _prepare_resume_data_for_validation(resume_data: dict) -> dict:
+    """Prepare resume data for Pydantic validation by setting required fields."""
+    # Set defaults for required fields if not present
+    if 'id' not in resume_data:
+        resume_data['id'] = str(uuid.uuid4())
     
-    # Ensure required fields exist with defaults
-    if not data.get('id'):
-        data['id'] = str(uuid.uuid4())
+    if 'userId' not in resume_data:
+        resume_data['userId'] = "00000000-0000-0000-0000-000000000000"  # System user for anonymous uploads
     
-    if not data.get('userId'):
-        data['userId'] = str(uuid.uuid4())  # Generate a placeholder user ID
+    if 'createdAt' not in resume_data:
+        resume_data['createdAt'] = datetime.now()
     
-    if not data.get('name'):
-        data['name'] = 'Extracted Resume'
+    if 'updatedAt' not in resume_data:
+        resume_data['updatedAt'] = datetime.now()
     
-    # Handle datetime fields - convert None or strings to datetime objects
-    current_time = datetime.now()
+    return resume_data
+
+
+def _clean_schema_for_genai(schema: dict) -> dict:
+    """Clean Pydantic v2 JSON schema to be compatible with Google GenAI function calling."""
+    import copy
+    cleaned = copy.deepcopy(schema)
     
-    if not data.get('createdAt'):
-        data['createdAt'] = current_time
-    elif isinstance(data['createdAt'], str):
-        try:
-            from dateutil.parser import parse
-            data['createdAt'] = parse(data['createdAt'])
-        except:
-            data['createdAt'] = current_time
+    # Remove required fields to make AI parsing more flexible
+    if "required" in cleaned:
+        cleaned["required"] = []
     
-    if not data.get('updatedAt'):
-        data['updatedAt'] = current_time
-    elif isinstance(data['updatedAt'], str):
-        try:
-            from dateutil.parser import parse
-            data['updatedAt'] = parse(data['updatedAt'])
-        except:
-            data['updatedAt'] = current_time
+    # Remove Pydantic v2 specific fields that Google GenAI doesn't support
+    for key in ["$defs", "additionalProperties", "title"]:
+        if key in cleaned:
+            del cleaned[key]
     
-    # Ensure other fields have appropriate defaults
-    if data.get('summary') is None:
-        data['summary'] = ""
+    # Recursively remove $ref references to $defs
+    def remove_refs(obj):
+        if isinstance(obj, dict):
+            if "$ref" in obj and obj["$ref"].startswith("#/$defs/"):
+                # Replace $ref with a simple string type
+                return {"type": "string", "description": "Referenced type"}
+            else:
+                return {k: remove_refs(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [remove_refs(item) for item in obj]
+        else:
+            return obj
     
-    if data.get('personalInfo') is None:
-        data['personalInfo'] = {}
-    
-    if data.get('experience') is None:
-        data['experience'] = []
-    
-    if data.get('education') is None:
-        data['education'] = []
-    
-    if data.get('skills') is None:
-        data['skills'] = []
-    
-    if data.get('projects') is None:
-        data['projects'] = []
-    
-    return data
+    return remove_refs(cleaned)
