@@ -13,7 +13,7 @@ class MockThinkingConfig:
 
 
 class MockGenerateContentConfig:
-    def __init__(self, temperature: float = 0.1, response_mime_type: str = "application/json", response_schema=None):
+    def __init__(self, temperature: float = 0.1, response_mime_type: str = None, response_schema=None):
         self.temperature = temperature
         self.response_mime_type = response_mime_type
         self.response_schema = response_schema
@@ -135,6 +135,44 @@ class MockLlmAgent:
             "designer_agent": {
                 "jinja_template": "<html><body><h1>{{ summary }}</h1></body></html>",
                 "css_styles": "body { font-family: Inter; color: #1a365d; }"
+            },
+            "cover_letter_analyst_agent": {
+                "role_summary": "Senior Software Engineer",
+                "company_summary": "Tech company focused on AI and machine learning solutions",
+                "strong_matches": [
+                    {"skill": "TypeScript", "evidence": "Used in multiple projects at Target"},
+                    {"experience": "Led AI initiatives", "evidence": "Drove $50M in revenue through AI projects"}
+                ],
+                "risk_mitigations": [
+                    {"gap": "Limited direct experience with specific tech stack", "solution": "Highlight transferable skills and quick learning ability"}
+                ],
+                "outline": {
+                    "opening": "Express enthusiasm for the role and company mission",
+                    "body": ["Highlight relevant experience and achievements", "Connect skills to job requirements", "Show company fit"],
+                    "closing": "Reiterate interest and call to action"
+                }
+            },
+            "cover_letter_writer_agent": {
+                "opening_paragraph": "I am excited to apply for the Senior Software Engineer position at your innovative company. With over 13 years of experience building full-stack products using TypeScript, React, and Next.js, I am particularly drawn to your mission of leveraging AI to solve complex business challenges.",
+                "body_paragraphs": [
+                    "In my most recent role at Target Corporation, I led front-end development for a 3D asset management platform that drove over $50M in new revenue through AI initiatives. I built internal AI platforms using modern web technologies and collaborated closely with product teams to deliver seamless user experiences.",
+                    "My technical expertise includes TypeScript, React, Next.js, and JavaScript, which align perfectly with your technology stack. I excel at shipping end-to-end features and designing clean, usable UIs in partnership with cross-functional teams."
+                ],
+                "company_connection": "I am particularly impressed by your company's innovative approach to AI-driven solutions and would welcome the opportunity to contribute my skills to your mission.",
+                "closing_paragraph": "Thank you for considering my application. I would welcome the opportunity to discuss how my experience and passion for technology can contribute to your team's success. I look forward to the possibility of speaking with you soon.",
+                "tone": "professional"
+            },
+            "cover_letter_editor_agent": {
+                "opening_paragraph": "I am excited to apply for the Senior Software Engineer position at your innovative company. With over 13 years of experience building full-stack products using TypeScript, React, and Next.js, I am particularly drawn to your mission of leveraging AI to solve complex business challenges.",
+                "body_paragraphs": [
+                    "In my most recent role at Target Corporation, I led front-end development for a 3D asset management platform that drove over $50M in new revenue through AI initiatives. I built internal AI platforms using modern web technologies and collaborated closely with product teams to deliver seamless user experiences.",
+                    "My technical expertise includes TypeScript, React, Next.js, and JavaScript, which align perfectly with your technology stack. I excel at shipping end-to-end features and designing clean, usable UIs in partnership with cross-functional teams."
+                ],
+                "company_connection": "I am particularly impressed by your company's innovative approach to AI-driven solutions and would welcome the opportunity to contribute my skills to your mission.",
+                "closing_paragraph": "Thank you for considering my application. I would welcome the opportunity to discuss how my experience and passion for technology can contribute to your team's success. I look forward to the possibility of speaking with you soon.",
+                "tone": "professional",
+                "word_count": 285,
+                "ats_score": 8
             }
         }
 
@@ -150,6 +188,24 @@ class MockLlmAgent:
             yield event
 
 
+class MockRunner:
+    def __init__(self, agent, session_service, app_name: str):
+        self.agent = agent
+        self.session_service = session_service
+        self.app_name = app_name
+
+class MockRunner:
+    def __init__(self, agent, session_service, app_name: str):
+        self.agent = agent
+        self.session_service = session_service
+        self.app_name = app_name
+
+    async def run_async(self, new_message, session_id: str, user_id: str):
+        """Mock implementation that delegates to the agent"""
+        async for event in self.agent.run_async(new_message, session_id, user_id):
+            yield event
+
+
 class MockParallelAgent:
     def __init__(self, name: str, description: str, sub_agents: List):
         self.name = name
@@ -157,7 +213,7 @@ class MockParallelAgent:
         self.sub_agents = sub_agents
 
     async def run_async(self, content, session_id, user_id):
-        """Mock implementation that runs all sub-agents"""
+        """Mock implementation that runs all sub-agents in parallel"""
         for agent in self.sub_agents:
             async for event in agent.run_async(content, session_id, user_id):
                 yield event
@@ -174,18 +230,6 @@ class MockSequentialAgent:
         for agent in self.sub_agents:
             async for event in agent.run_async(content, session_id, user_id):
                 yield event
-
-
-class MockRunner:
-    def __init__(self, agent, session_service, app_name: str):
-        self.agent = agent
-        self.session_service = session_service
-        self.app_name = app_name
-
-    async def run_async(self, new_message, session_id: str, user_id: str):
-        """Mock implementation that delegates to the agent"""
-        async for event in self.agent.run_async(new_message, session_id, user_id):
-            yield event
 
 
 # Create the mock modules

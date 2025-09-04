@@ -98,17 +98,9 @@ class ResumeBase(BaseModel):
 
 
 class ResumeCreate(ResumeBase):
-    userId: str
+    pass
 
 
-class Resume(ResumeBase):
-    id: str
-    userId: str
-    createdAt: datetime
-    updatedAt: datetime
-
-    # pydantic v2: use model_config with ConfigDict to allow attribute access
-    model_config = pydantic.ConfigDict(from_attributes=True)
 
 
 # A concrete response model that matches the JSON shape returned by the DB/API
@@ -129,8 +121,7 @@ class ResumeResponse(BaseModel):
     themeId: Optional[str] = None
     createdAt: datetime
     updatedAt: datetime
-
-    model_config = pydantic.ConfigDict(from_attributes=True)
+    model_config = pydantic.ConfigDict(from_attributes=True, extra="allow")
 
 
 class ResumeListResponse(BaseModel):
@@ -355,16 +346,19 @@ class Theme(BaseModel):
     model_config = pydantic.ConfigDict(from_attributes=True)
 
 
+class ThemeComponent(BaseModel):
+    template: str
+    styles: str
+
+
 class ThemePackage(BaseModel):
     id: str
     name: str
-    description: Optional[str] = None
-    coverLetterTemplateId: str
-    resumeTemplateId: str
+    description: str
+    resumeTemplate: Theme
+    coverLetterTemplate: Theme
     createdAt: datetime
     updatedAt: datetime
-    coverLetterTemplate: Optional[Theme] = None
-    resumeTemplate: Optional[Theme] = None
 
     model_config = pydantic.ConfigDict(from_attributes=True)
 
