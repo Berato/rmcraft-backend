@@ -25,7 +25,7 @@ except ImportError:
     # Mock types module
     import types
     types.GenerateContentConfig = type('GenerateContentConfig', (), {
-        '__init__': lambda self, temperature=0.1, response_mime_type="application/json": None
+        '__init__': lambda self, temperature=1, response_mime_type="application/json": None
     })
     types.ThinkingConfig = type('ThinkingConfig', (), {
         '__init__': lambda self, include_thoughts=False, thinking_budget=0: None
@@ -40,18 +40,21 @@ except ImportError:
         '__init__': lambda self, mime_type, data: None
     })
 
+import logging
 import chromadb
 from pyparsing import Any
 import json
 import asyncio
+from app.agents import resume
 from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
-from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
+from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, ResumeResponse, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
 from app.agents.resume.strategic.schema_assembler import create_resume_from_fragments
 import uuid
+from google.adk.models.lite_llm import LiteLlm
 
-
-
+OPENAI_MODEL = "openai/gpt-5-mini"
+gpt5_model = LiteLlm(model=OPENAI_MODEL)
 
 
 def clean_json_response(raw_text: str) -> str:
@@ -124,7 +127,7 @@ fetch_jd_tool = FunctionTool(func=fetch_jd_chunks)
 
 # Create a dedicated search agent using built-in google_search (root-level only)
 search_agent = LlmAgent(
-  model="gemini-2.5-flash",
+  model=gpt5_model,
   name="search_agent", 
   description="Performs internet searches using Google Search to find current information.",
   instruction=(
@@ -133,7 +136,7 @@ search_agent = LlmAgent(
     "Focus on providing factual, current information from reliable sources."
   ),
   generate_content_config=types.GenerateContentConfig(
-    temperature=0.1
+    temperature=1
   ),
   tools=[google_search],
 )
@@ -266,7 +269,7 @@ def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict]
     return documents, metadatas, ids
 
 async def strategic_resume_agent(
-    resume_id: str,
+    resume: ResumeResponse,
     job_description_url: str
 ):
   # Initialize ChromaDB client
@@ -274,12 +277,10 @@ async def strategic_resume_agent(
 
   resume_collection = chroma_client.get_or_create_collection(name="resume_parts")
 
-  # Step 0 - Get resume parts and store them in ChromaDB
-  resume = get_resume_pydantic(resume_id)
-
   if not resume:
-    raise ValueError(f"Resume not found for id: {resume_id}")
+    raise ValueError(f"Resume not found for id: {resume.id}")
 
+  logging.info(f"Processing resume for id: {resume.id}")
   documents, metadatas, ids = process_resumes_for_chroma(resume.model_dump())
   if not documents:
     raise ValueError("No resume data found to process; cancelling the process.")
@@ -335,8 +336,8 @@ async def strategic_resume_agent(
     return jd_parts
 
   # Build the experience-analysis agent with creative analysis focus
-  experience_agent = LlmAgent(
-    model="gemini-2.5-flash",
+  experience_test_agent = LlmAgent(
+    model=gpt5_model,
     name="experience_agent",
     description="Analyze resume + job description and extract relevant experience with creative insights and JSON output.",
     instruction=(
@@ -347,7 +348,7 @@ async def strategic_resume_agent(
       "Use resume_query_tool to get experience data. Return structured JSON with experiences array."
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.5
+      temperature=1
     ),
     output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
@@ -356,7 +357,7 @@ async def strategic_resume_agent(
 
 
   skills_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model=gpt5_model,
     name="skills_agent",
     description="Analyze resume + job description and extract relevant skills with strategic insights and JSON output.",
     instruction=(
@@ -368,7 +369,7 @@ async def strategic_resume_agent(
       "Use resume_query_tool to get skills data. Return structured JSON with skills array."
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.5
+      temperature=1
     ),
     output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
@@ -376,7 +377,7 @@ async def strategic_resume_agent(
   )
 
   projects_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model=gpt5_model,
     name="projects_agent",
     description="Analyze resume + job description and extract relevant projects with creative insights and JSON output.",
     instruction=(
@@ -388,7 +389,7 @@ async def strategic_resume_agent(
       "Use resume_query_tool to get project data. Return structured JSON with projects array."
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.5
+      temperature=1
     ),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
@@ -396,7 +397,7 @@ async def strategic_resume_agent(
   )
   
   summary_agent = LlmAgent(
-    model="gemini-2.5-pro",
+    model=gpt5_model,
     name="summary_agent",
     description="Write a creative, compelling professional summary for the resume with JSON output.",
     instruction=(
@@ -407,7 +408,7 @@ async def strategic_resume_agent(
       "Use resume_query_tool to get summary data. Return structured JSON with summary string."
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.5
+      temperature=1
     ),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
@@ -421,7 +422,7 @@ async def strategic_resume_agent(
     name="resume_analysis_agent",
     description="Analyze resume and job description to extract relevant experiences, skills, and projects.",
     sub_agents=[
-      experience_agent,
+      experience_test_agent,
       skills_agent,
       projects_agent
     ]
@@ -443,7 +444,7 @@ async def strategic_resume_agent(
 
   content_parts = [
       types.Part(text=(
-          f"Perform a strategic analysis for resume {resume_id} against job url {job_description_url}. "
+          f"Perform a strategic analysis for resume {resume.id} against job url {job_description_url}. "
           f"Extract and analyze relevant experience, skills, projects, and create a compelling summary."
       ))
   ]
@@ -455,7 +456,7 @@ async def strategic_resume_agent(
 
   # Collect agent outputs into fragments for schema assembler
   fragments = {
-    "experiences": [],
+    "experience": [],
     "skills": {"skills": [], "additional_skills": []},
     "projects": [],
     "education": {"education": education_data},  # Wrap in expected dict format
@@ -499,12 +500,13 @@ async def strategic_resume_agent(
       # With structured output, the content should be valid JSON
       if hasattr(event.content, 'parts') and event.content.parts:
         raw_text = event.content.parts[0].text.strip()
-        print(f"\n🔄 Agent Response: {raw_text}")
+        logging.info(f"\n🔄 Agent Response: {raw_text}")
+        logging.info(f"Event Parts: {event.content.parts}")
 
         try:
           # Parse the structured JSON response
           parsed_response = json.loads(raw_text)
-          print(f"✅ Parsed structured response: {type(parsed_response)}")
+          logging.info(f"✅ Parsed structured response: {type(parsed_response)}")
           
           # Map structured responses to fragments
           if isinstance(parsed_response, dict):
@@ -538,7 +540,9 @@ async def strategic_resume_agent(
 
   # Use schema assembler to validate, repair, and build final response
   final_response, diagnostics = create_resume_from_fragments(fragments)
-
+  logging.info(f"Final response: {final_response}")
+  logging.info(f"Diagnostics: {diagnostics}")
+  logging.info(f"Session: {session.state}")
   # Log diagnostics for monitoring
   for diagnostic in diagnostics:
     if diagnostic.status == "FAILED":

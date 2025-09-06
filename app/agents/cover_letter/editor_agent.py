@@ -85,14 +85,16 @@ def create_cover_letter_editor_agent():
             "\n- Ensure readable text structure"
             "\n\nQUALITY CHECKS:"
             "\n- No spelling or grammar errors"
-            "\n- Professional yet personable tone"
+            "\n- Tone must be one of: professional, creative, enthusiastic, formal"
             "\n- Specific examples and achievements"
             "\n- Clear value proposition"
             "\n- Strong opening and closing"
             "\n\nReturn the polished content with word count and ATS compatibility assessment."
+            "\n\nReturn ONLY valid JSON that matches the schema. Do not include markdown fences or commentary."
         ),
         generate_content_config=types.GenerateContentConfig(
-            temperature=0.2  # Low temperature for consistent editing
+            temperature=0.2,  # Low temperature for consistent editing
+            response_mime_type="application/json"
         ),
         output_schema=EditedCoverLetter,
         output_key="edited_content",
@@ -154,16 +156,36 @@ async def run_cover_letter_editing(
     )
 
     editing_result = None
+    def _try_parse_json(s: str):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            pass
+        s2 = s.strip()
+        if s2.startswith("```"):
+            s2 = s2.strip('`')
+            if s2.lower().startswith("json\n"):
+                s2 = s2[5:]
+        start = s2.find('{')
+        end = s2.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            cand = s2[start:end+1]
+            try:
+                return json.loads(cand)
+            except json.JSONDecodeError:
+                pass
+        return None
 
     async for event in runner.run_async(new_message=content, session_id=session_id, user_id=user_id):
         if event.is_final_response() and event.content:
             if hasattr(event.content, 'parts') and event.content.parts:
                 raw_text = event.content.parts[0].text.strip()
-                try:
-                    editing_result = json.loads(raw_text)
+                parsed = _try_parse_json(raw_text)
+                if parsed is not None:
+                    editing_result = parsed
                     print("✅ Cover letter editing completed successfully")
-                except json.JSONDecodeError as e:
-                    print(f"❌ Failed to parse editing result: {e}")
+                else:
+                    print("❌ Failed to parse editing result: Invalid JSON after cleanup")
                     print(f"Raw response: {raw_text}")
 
     return editing_result

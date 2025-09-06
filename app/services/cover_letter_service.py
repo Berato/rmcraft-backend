@@ -142,6 +142,19 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
         # Format for storage
         formatted_data = format_cover_letter_for_storage(cover_letter_data)
 
+        # Derive required relational fields from Resume to satisfy DB FKs
+        resume_id = formatted_data.get('resumeId')
+        if not resume_id:
+            raise ValueError("resumeId is required to save a cover letter")
+
+        resume_obj = db.query(Resume).filter(Resume.id == resume_id).first()
+        if not resume_obj:
+            raise ValueError(f"Resume not found for id: {resume_id}")
+
+        # Ensure userId and themeId presence per DB schema expectations
+        formatted_data['userId'] = getattr(resume_obj, 'userId', None)
+        formatted_data['themeId'] = getattr(resume_obj, 'themeId', None)
+
         # Sanitize content
         formatted_data['finalContent'] = sanitize_cover_letter_content(formatted_data['finalContent'])
         formatted_data['openingParagraph'] = sanitize_cover_letter_content(formatted_data['openingParagraph'])
@@ -168,10 +181,12 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
             tone=formatted_data.get('tone'),
             finalContent=formatted_data.get('finalContent'),
             resumeId=formatted_data.get('resumeId'),
+            userId=formatted_data.get('userId'),
+            themeId=formatted_data.get('themeId'),
             jobProfileId=formatted_data.get('jobProfileId'),
             wordCount=formatted_data.get('wordCount'),
             atsScore=formatted_data.get('atsScore'),
-            metadata=formatted_data.get('metadata')
+            metadata_json=formatted_data.get('metadata')
         )
 
         # Add to session and commit
@@ -204,7 +219,8 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
 
     except IntegrityError as e:
         db.rollback()
-        logger.error(f"Integrity error saving cover letter: {e}")
+        # Log full error for diagnosis, including args which may contain detailed DB message
+        logger.error(f"Integrity error saving cover letter: {e}; details: {getattr(e, 'orig', None)}")
         raise ValueError("Cover letter already exists or constraint violation")
 
     except Exception as e:
@@ -309,8 +325,12 @@ def list_cover_letters(
     offset = (page - 1) * per_page
     query = query.offset(offset).limit(per_page)
 
-    # Determine which columns to load
+    # Determine which columns to include in response
     include_final_content = include and 'finalContent' in include
+    include_opening = include and 'openingParagraph' in include
+    include_body = include and 'bodyParagraphs' in include
+    include_company = include and 'companyConnection' in include
+    include_closing = include and 'closingParagraph' in include
 
     # Execute query
     cover_letters = query.all()
@@ -332,6 +352,14 @@ def list_cover_letters(
 
         if include_final_content:
             item['finalContent'] = cl.finalContent
+        if include_opening:
+            item['openingParagraph'] = cl.openingParagraph
+        if include_body:
+            item['bodyParagraphs'] = cl.bodyParagraphs
+        if include_company:
+            item['companyConnection'] = cl.companyConnection
+        if include_closing:
+            item['closingParagraph'] = cl.closingParagraph
 
         items.append(item)
 
@@ -348,4 +376,44 @@ def list_cover_letters(
             'total': total,
             'totalPages': total_pages
         }
+    }
+
+
+def get_cover_letter_by_id(db: Session, cover_letter_id: str) -> Dict[str, Any]:
+    """
+    Retrieve a single cover letter by id with all fields.
+
+    Args:
+        db: Database session
+        cover_letter_id: The cover letter ID
+
+    Returns:
+        Dict with full cover letter data
+
+    Raises:
+        ValueError if not found
+    """
+    cl: Optional[CoverLetter] = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id).first()
+    if not cl:
+        raise ValueError(f"Cover letter not found for id: {cover_letter_id}")
+
+    return {
+        'id': cl.id,
+        'title': cl.title,
+        'jobDetails': cl.jobDetails,
+        'openingParagraph': cl.openingParagraph,
+        'bodyParagraphs': cl.bodyParagraphs,
+        'companyConnection': cl.companyConnection,
+        'closingParagraph': cl.closingParagraph,
+        'tone': cl.tone,
+        'finalContent': cl.finalContent,
+        'resumeId': cl.resumeId,
+        'userId': getattr(cl, 'userId', None),
+        'themeId': getattr(cl, 'themeId', None),
+        'jobProfileId': cl.jobProfileId,
+        'wordCount': cl.wordCount,
+        'atsScore': cl.atsScore,
+        'metadata': cl.metadata_json,
+        'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
+        'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,
     }

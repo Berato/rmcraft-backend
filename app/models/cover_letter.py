@@ -20,6 +20,9 @@ class CoverLetter(Base):
     tone = Column(String)
     finalContent = Column(String)
     resumeId = Column(String, index=True)
+    # Align with DB schema: include userId and themeId FKs
+    userId = Column(String, index=True)
+    themeId = Column(String, nullable=True, index=True)
     jobProfileId = Column(String, nullable=True, index=True)
     wordCount = Column(Integer)
     atsScore = Column(Integer)

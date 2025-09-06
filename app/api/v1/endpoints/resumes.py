@@ -15,6 +15,7 @@ from app.services.resume_normalization import (
     normalize_personal_info,
 )
 from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
+from app.agents.resume.strategic.experience_agent import experience_agent_isolated
 import asyncio
 
 router = APIRouter()
@@ -63,29 +64,13 @@ def read_resumes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db))
 
 
 @router.get("/{resume_id}", response_model=ResumeSingleResponse)
-def read_resume(resume_id: str, db: Session = Depends(get_db)):
-    r = crud_resume.get_resume(db, resume_id)
-    if not r:
+async def read_resume(resume_id: str, db: Session = Depends(get_db)):
+    resume = await ResumeResponse.find_one({"_id": resume_id})
+
+    if not resume:
         return {"status": 404, "message": "Resume not found", "data": None}
 
-    item: Dict[str, Any] = {
-        "id": getattr(r, "id", ""),
-        "userId": getattr(r, "userId", ""),
-        "name": getattr(r, "name", ""),
-        "summary": getattr(r, "summary", "") or "",
-    "personalInfo": normalize_personal_info(getattr(r, "personalInfo", None)),
-    "experience": ensure_list_of_dicts(getattr(r, "experience", None)),
-    "education": ensure_list_of_dicts(getattr(r, "education", None)),
-    "skills": normalize_skills(getattr(r, "skills", None)),
-    "projects": normalize_projects(getattr(r, "projects", None)),
-        "jobDescription": getattr(r, "jobDescription", None),
-        "jobProfileId": getattr(r, "jobProfileId", None),
-        "themeId": getattr(r, "themeId", None),
-        "createdAt": getattr(r, "createdAt", None),
-        "updatedAt": getattr(r, "updatedAt", None),
-    }
-
-    return {"status": 200, "message": "Resume returned successfully", "data": item}
+    return {"status": 200, "message": "Resume returned successfully", "data": resume}
 
 
 @router.post("/strategic-analysis", response_model=StrategicResumeResponse)
@@ -106,7 +91,7 @@ async def strategic_resume_analysis(
     """
     try:
         # Validate that the resume exists
-        resume = crud_resume.get_resume(db, resume_id)
+        resume = await ResumeResponse.find_one({"_id": resume_id})
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
@@ -114,11 +99,16 @@ async def strategic_resume_analysis(
         try:
             result = await asyncio.wait_for(
                 strategic_resume_agent(
-                    resume_id=resume_id,
+                    resume=resume,
                     job_description_url=job_description_url
                 ),
                 timeout=65.0,
             )
+
+            validated_result = None
+            if result and isinstance(result, dict):  # Check if result is valid and is a dictionary
+                validated_result = ResumeResponse.model_validate(result)  # Validate the result structure
+                await validated_result.save()  # Insert into the database
         except asyncio.TimeoutError:
             # Agents didn't produce a final response in time — return a timeout to the client
             raise HTTPException(status_code=504, detail="Strategic analysis timed out; try again or check agent logs")
@@ -126,6 +116,49 @@ async def strategic_resume_analysis(
         return {
             "status": 200,
             "message": "Strategic analysis completed successfully",
+            "data": validated_result
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/test-experience-agent", response_model=StrategicResumeResponse)
+async def test_experience_agent(
+    resume_id: str = Form(...),
+    job_description_url: str = Form(...),
+):
+    """
+    Test the isolated experience agent against a job description.
+    
+    This endpoint uses the experience agent in isolation to:
+    - Parse and analyze the resume content
+    - Extract relevant information from the job description URL
+    - Return plain text experience analysis
+    """
+    try:
+        # Validate that the resume exists
+        resume = await ResumeResponse.find_one({"_id": resume_id})
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        
+        # Call the experience agent with a safe timeout
+        try:
+            result = await asyncio.wait_for(
+                experience_agent_isolated(
+                    resume=resume,
+                    job_description_url=job_description_url
+                ),
+                timeout=65.0,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Experience agent timed out; try again or check agent logs")
+        
+        return {
+            "status": 200,
+            "message": "Experience agent test completed successfully",
             "data": result
         }
         
@@ -134,11 +167,11 @@ async def strategic_resume_analysis(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
 @router.post("/create-from-pdf", response_model=ResumeSingleResponse)
 async def create_resume_from_pdf(
     file: UploadFile = File(...),
     user_id: Optional[str] = Form(None, description="User ID to associate with the resume"),
-    db: Session = Depends(get_db)
 ):
     """
     Create a resume from a PDF file.
@@ -161,27 +194,8 @@ async def create_resume_from_pdf(
 
         # Save the resume to the database - no more complex userId handling needed!
         try:
-            saved_resume = crud_resume.create_resume(db, resume_obj.model_dump())
-            
-            # Normalize the saved resume data for response
-            normalized_data = {
-                "id": getattr(saved_resume, "id", ""),
-                "userId": getattr(saved_resume, "userId", ""),
-                "name": getattr(saved_resume, "name", ""),
-                "summary": getattr(saved_resume, "summary", "") or "",
-                "personalInfo": normalize_personal_info(getattr(saved_resume, "personalInfo", None)),
-                "experience": ensure_list_of_dicts(getattr(saved_resume, "experience", None)),
-                "education": ensure_list_of_dicts(getattr(saved_resume, "education", None)),
-                "skills": normalize_skills(getattr(saved_resume, "skills", None)),
-                "projects": normalize_projects(getattr(saved_resume, "projects", None)),
-                "jobDescription": getattr(saved_resume, "jobDescription", None),
-                "jobProfileId": getattr(saved_resume, "jobProfileId", None),
-                "themeId": getattr(saved_resume, "themeId", None),
-                "createdAt": getattr(saved_resume, "createdAt", None),
-                "updatedAt": getattr(saved_resume, "updatedAt", None),
-            }
-            
-            return {"status": 201, "message": "Resume created successfully", "data": normalized_data}
+            saved_resume = await resume_obj.save()
+            return {"status": 201, "message": "Resume created successfully", "data": saved_resume}
         except Exception as e:
             # If the foreign key constraint fails, provide a better error message
             if "foreign key constraint" in str(e) and "userId" in str(e):

@@ -3,6 +3,8 @@ from app.models.resume import Resume
 from typing import Dict, Any
 from datetime import datetime
 
+from app.schemas.ResumeSchemas import ResumeResponse
+
 
 def get_resumes(db: Session, skip: int = 0, limit: int = 100):
     return db.query(Resume).offset(skip).limit(limit).all()
@@ -11,6 +13,12 @@ def get_resumes(db: Session, skip: int = 0, limit: int = 100):
 def get_resume(db: Session, resume_id: str):
     return db.query(Resume).filter(Resume.id == resume_id).first()
 
+def create_resume_v2(resume_data: ResumeResponse):
+    """
+    Inserting a new resume into the MongoDB collection.
+    """
+    
+    
 
 def create_resume(db: Session, resume_data: Dict[str, Any]):
     """

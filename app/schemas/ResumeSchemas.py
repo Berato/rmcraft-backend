@@ -5,6 +5,8 @@ from datetime import datetime
 import uuid
 from enum import Enum
 from typing import Optional, List
+from beanie import Document
+from bson import ObjectId
 
 class PersonalInfo(BaseModel):
     id: str
@@ -50,8 +52,8 @@ class Education(BaseModel):
     id: str
     institution: str
     degree: Optional[str]
-    startDate: str
-    endDate: str
+    startDate: Optional[str]
+    endDate: Optional[str]
 
 
 class Project(BaseModel):
@@ -64,7 +66,7 @@ class Project(BaseModel):
 class Skill(BaseModel):
     id: str
     name: str
-    level: int  # 1-5 proficiency level
+    level: Optional[int] = None  # 1-5 proficiency level
 
 
 class JobDescription(BaseModel):
@@ -104,9 +106,10 @@ class ResumeCreate(ResumeBase):
 
 
 # A concrete response model that matches the JSON shape returned by the DB/API
-class ResumeResponse(BaseModel):
-    id: str
-    userId: str
+class ResumeResponse(Document):
+    # Accept either MongoDB-style "_id" or "id"; be tolerant if fields are missing
+    id: Optional[str] = Field(default=None, alias="_id")
+    userId: Optional[str] = None
     name: str
     summary: Optional[str] = ""
     # tolerate either fully-typed objects or loose dicts/partials from the DB
@@ -119,10 +122,27 @@ class ResumeResponse(BaseModel):
     jobDescription: Optional[Union[JobDescription, Dict[str, Any]]] = None
     jobProfileId: Optional[str] = None
     themeId: Optional[str] = None
-    createdAt: datetime
-    updatedAt: datetime
-    model_config = pydantic.ConfigDict(from_attributes=True, extra="allow")
+    createdAt: Optional[datetime] = None
+    updatedAt: Optional[datetime] = None
+    # allow from_attributes, extra fields, and population by field name (so alias "_id" works)
+    model_config = pydantic.ConfigDict(from_attributes=True, extra="allow", populate_by_name=True)
 
+    @pydantic.field_validator("id", mode="before")
+    def _coerce_objectid_to_str(cls, v: Any):
+        # Convert MongoDB ObjectId to string so Pydantic validation succeeds
+        if v is None:
+            return None
+        try:
+            if isinstance(v, ObjectId):
+                return str(v)
+        except Exception:
+            pass
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+    class Settings:
+        name = "resumes"
 
 class ResumeListResponse(BaseModel):
     """Envelope response returned by GET /api/v1/resumes
@@ -175,7 +195,7 @@ class CoverLetterTypes(BaseModel):
     bodyParagraphs: List[BodyParagraph] = Field(default_factory=list)
     companyConnection: CompanyConnection
     closingParagraph: str
-    tone: Literal["professional", "creative", "enthusiastic", "formal"]
+    tone: str
     finalContent: str
     jobProfileId: Optional[str] = None
 
@@ -284,11 +304,11 @@ class ContactInfo(BaseModel):
 
 
 class ExperienceAgentOutPutSchema(BaseModel):
-    experiences: List[Experience]
+    experience: List[Experience]
 
 class SkillsAgentOutPutSchema(BaseModel):
     skills: List[Skill]
-    additional_skills: List[str]
+    additional_skills: Optional[List[str]] = None
 
 class ProjectsAgentOutPutSchema(BaseModel):
     projects: List[Project]
@@ -320,11 +340,11 @@ class DesignerAgentOutputSchema(BaseModel):
     css_styles: str = Field(description="A complete CSS string to style the resume.")
     
     
-class CoverLetterTone(str, Enum):
-    PROFESSIONAL = "professional"
-    CREATIVE = "creative"
-    ENTHUSIASTIC = "enthusiastic"
-    FORMAL = "formal"
+# class CoverLetterTone(str, Enum):
+#     PROFESSIONAL = "professional"
+#     CREATIVE = "creative"
+#     ENTHUSIASTIC = "enthusiastic"
+#     FORMAL = "formal"
 
 
 class ThemeType(str, Enum):

@@ -87,7 +87,8 @@ def create_cover_letter_writer_agent(resume_query_tool, job_description_query_to
             "\n\nReturn structured content with opening_paragraph, body_paragraphs, company_connection, closing_paragraph, and tone."
         ),
         generate_content_config=types.GenerateContentConfig(
-            temperature=0.6  # Higher temperature for creative writing
+            temperature=0.6,  # Higher temperature for creative writing
+            response_mime_type="application/json"
         ),
         output_schema=CoverLetterContent,
         output_key="content",
@@ -154,16 +155,36 @@ async def run_cover_letter_writing(
     )
 
     writing_result = None
+    def _try_parse_json(s: str):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            pass
+        s2 = s.strip()
+        if s2.startswith("```"):
+            s2 = s2.strip('`')
+            if s2.lower().startswith("json\n"):
+                s2 = s2[5:]
+        start = s2.find('{')
+        end = s2.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            cand = s2[start:end+1]
+            try:
+                return json.loads(cand)
+            except json.JSONDecodeError:
+                pass
+        return None
 
     async for event in runner.run_async(new_message=content, session_id=session_id, user_id=user_id):
         if event.is_final_response() and event.content:
             if hasattr(event.content, 'parts') and event.content.parts:
                 raw_text = event.content.parts[0].text.strip()
-                try:
-                    writing_result = json.loads(raw_text)
+                parsed = _try_parse_json(raw_text)
+                if parsed is not None:
+                    writing_result = parsed
                     print("✅ Cover letter writing completed successfully")
-                except json.JSONDecodeError as e:
-                    print(f"❌ Failed to parse writing result: {e}")
+                else:
+                    print("❌ Failed to parse writing result: Invalid JSON after cleanup")
                     print(f"Raw response: {raw_text}")
 
     return writing_result

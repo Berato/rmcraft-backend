@@ -214,7 +214,7 @@ class SchemaAssembler:
 
         # Define field-to-schema mapping
         field_schemas = {
-            'experiences': ExperienceAgentOutPutSchema,
+            'experience': ExperienceAgentOutPutSchema,
             'skills': SkillsAgentOutPutSchema,
             'projects': ProjectsAgentOutPutSchema,
             'education': EducationAgentOutPutSchema,

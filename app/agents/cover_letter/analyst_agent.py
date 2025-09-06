@@ -41,6 +41,7 @@ except ImportError:
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import json
+import re
 from google.adk.planners import BuiltInPlanner
 
 
@@ -90,9 +91,11 @@ def create_cover_letter_analyst_agent(resume_query_tool, job_description_query_t
             "\n- Keep the outline concise but comprehensive"
             "\n- Ensure all claims can be backed up by resume content"
             "\n\nReturn a structured response with role_summary, company_summary, strong_matches, risk_mitigations, and outline."
+            "\n\nReturn ONLY valid JSON that matches the schema. Do not include markdown fences, commentary, or any text outside the JSON object."
         ),
         generate_content_config=types.GenerateContentConfig(
-            temperature=0.3  # Lower temperature for more consistent analysis
+            temperature=0.3,  # Lower temperature for more consistent analysis
+            response_mime_type="application/json"
         ),
         output_schema=CoverLetterOutline,
         output_key="analysis",
@@ -151,15 +154,39 @@ async def run_cover_letter_analysis(
 
     analysis_result = None
 
+    def _try_parse_json(s: str):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            pass
+        # Strip markdown code fences if present
+        s2 = s.strip()
+        if s2.startswith("```"):
+            s2 = s2.strip('`')
+            # remove optional leading language label like json\n
+            if s2.lower().startswith("json\n"):
+                s2 = s2[5:]
+        # Extract JSON object heuristically
+        start = s2.find('{')
+        end = s2.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            cand = s2[start:end+1]
+            try:
+                return json.loads(cand)
+            except json.JSONDecodeError:
+                pass
+        return None
+
     async for event in runner.run_async(new_message=content, session_id=session_id, user_id=user_id):
         if event.is_final_response() and event.content:
             if hasattr(event.content, 'parts') and event.content.parts:
                 raw_text = event.content.parts[0].text.strip()
-                try:
-                    analysis_result = json.loads(raw_text)
+                parsed = _try_parse_json(raw_text)
+                if parsed is not None:
+                    analysis_result = parsed
                     print("✅ Cover letter analysis completed successfully")
-                except json.JSONDecodeError as e:
-                    print(f"❌ Failed to parse analysis result: {e}")
+                else:
+                    print("❌ Failed to parse analysis result: Invalid JSON after cleanup")
                     print(f"Raw response: {raw_text}")
 
     return analysis_result

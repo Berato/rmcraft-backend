@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.features.cover_letter_orchestrator import cover_letter_orchestrator
-from app.services.cover_letter_service import list_cover_letters
+from app.services.cover_letter_service import list_cover_letters, get_cover_letter_by_id
 from app.db.session import get_db
 
 router = APIRouter()
@@ -57,6 +57,34 @@ class CoverLetterAPIResponse(BaseModel):
     data: StrategicCoverLetterResponse
 
 
+class CoverLetterFull(BaseModel):
+    """Full cover letter payload for single fetch"""
+    id: str
+    title: str
+    jobDetails: Dict[str, Any]
+    openingParagraph: str
+    bodyParagraphs: List[str]
+    companyConnection: Optional[str] = None
+    closingParagraph: str
+    tone: str
+    finalContent: str
+    resumeId: str
+    userId: Optional[str] = None
+    themeId: Optional[str] = None
+    jobProfileId: Optional[str] = None
+    wordCount: int
+    atsScore: int
+    metadata: Optional[Dict[str, Any]] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+
+
+class CoverLetterSingleResponse(BaseModel):
+    status: int
+    message: str
+    data: CoverLetterFull
+
+
 class CoverLetterSummary(BaseModel):
     """Summary model for cover letter listing"""
     id: str
@@ -69,6 +97,10 @@ class CoverLetterSummary(BaseModel):
     wordCount: int
     atsScore: int
     finalContent: Optional[str] = None
+    openingParagraph: Optional[str] = None
+    bodyParagraphs: Optional[List[str]] = None
+    companyConnection: Optional[str] = None
+    closingParagraph: Optional[str] = None
 
 
 class CoverLetterListMeta(BaseModel):
@@ -258,3 +290,22 @@ async def list_cover_letters_endpoint(
             status_code=500,
             detail=f"Failed to list cover letters: {str(e)}"
         )
+
+
+@router.get("/{cover_letter_id}", response_model=CoverLetterSingleResponse)
+async def get_cover_letter_endpoint(cover_letter_id: str, db: Session = Depends(get_db)):
+    """
+    Get a single cover letter with all fields.
+    """
+    try:
+        cl = get_cover_letter_by_id(db, cover_letter_id)
+        return CoverLetterSingleResponse(
+            status=200,
+            message="Cover letter retrieved successfully",
+            data=CoverLetterFull(**cl)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"❌ Error fetching cover letter: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch cover letter: {str(e)}")
