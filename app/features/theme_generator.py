@@ -5,9 +5,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 import uuid
 # Import your actual database service functions and schemas
-from app.services.theme_service import create_theme, create_theme_package
-from app.models.theme import ThemeType
-from sqlalchemy.orm import Session
+from app.services.theme_service import save_theme_from_agents
 
 # Step 1: Define the parallel execution step for the two theme creators
 parallel_theme_creation = ParallelAgent(
@@ -29,7 +27,7 @@ full_theme_workflow = SequentialAgent(
     ]
 )
 
-async def create_and_save_theme(design_prompt: str, image_data: bytes, image_mime_type: str, user_id: str, db: Session):
+async def create_and_save_theme(design_prompt: str, image_data: bytes, image_mime_type: str, user_id: str):
     """
     Orchestrates the end-to-end process of generating and saving a new theme.
     """
@@ -94,44 +92,7 @@ async def create_and_save_theme(design_prompt: str, image_data: bytes, image_mim
     print(f"📋 Final response keys: {list(final_response.keys())}")
     print(f"📋 Final response: {final_response}")
     
-    theme_brief = final_response.get("theme_brief", {})
-    resume_theme_data = final_response.get("resume_theme", {})
-    cover_letter_theme_data = final_response.get("cover_letter_theme", {})
-
-    print(f"📋 theme_brief: {bool(theme_brief)}")
-    print(f"📋 resume_theme_data: {bool(resume_theme_data)}")
-    print(f"📋 cover_letter_theme_data: {bool(cover_letter_theme_data)}")
-
-    if not all([theme_brief, resume_theme_data, cover_letter_theme_data]):
-        raise Exception("Theme generation failed. One or more agents did not produce output.")
-
-    # Create individual Theme records for resume and cover letter
-    new_resume_theme = await create_theme(
-        db=db,
-        name=f"{theme_brief.get('name')} - Resume",
-        description=theme_brief.get('description'),
-        type=ThemeType.RESUME,
-        template=resume_theme_data.get('template'),
-        styles=resume_theme_data.get('styles')
-    )
-
-    new_cover_letter_theme = await create_theme(
-        db=db,
-        name=f"{theme_brief.get('name')} - Cover Letter",
-        description=theme_brief.get('description'),
-        type=ThemeType.COVER_LETTER,
-        template=cover_letter_theme_data.get('template'),
-        styles=cover_letter_theme_data.get('styles')
-    )
-
-    # Create the ThemePackage that links them
-    saved_theme_package = await create_theme_package(
-        db=db,
-        name=theme_brief.get('name'),
-        description=theme_brief.get('description'),
-        resume_template_id=new_resume_theme.id,
-        cover_letter_template_id=new_cover_letter_theme.id
-    )
-
-    print("✅ Theme package saved to database successfully.")
+    # Use strict validation + persistence wrapper (Beanie-backed)
+    saved_theme_package = await save_theme_from_agents(final_response=final_response)
+    print("✅ Theme package saved to database successfully (validated).")
     return saved_theme_package

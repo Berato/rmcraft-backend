@@ -1,4 +1,4 @@
-from .ResumeSchemas import ResumeResponse
+from .ResumeSchemas import ResumeResponse, ThemeType, Theme, ThemeComponent, ThemePackage
 from .CoverLetterSchemas import (
 	StrategicCoverLetterRequest,
 	JobProfileDetails,
@@ -11,9 +11,15 @@ from .CoverLetterSchemas import (
 	CoverLetterListData,
 	CoverLetterListResponse,
 )
+from .theme import ThemeTemplate, ThemeSchema
+from .theme_documents import ThemeDoc, ThemePackageDoc
 
 __all__ = [
 	"ResumeResponse",
+	"ThemeType",
+	"Theme", 
+	"ThemeComponent",
+	"ThemePackage",
 	"StrategicCoverLetterRequest",
 	"JobProfileDetails",
 	"StrategicCoverLetterResponse",
@@ -24,4 +30,8 @@ __all__ = [
 	"CoverLetterListMeta",
 	"CoverLetterListData",
 	"CoverLetterListResponse",
+	"ThemeTemplate",
+	"ThemeSchema",
+	"ThemeDoc",
+	"ThemePackageDoc",
 ]

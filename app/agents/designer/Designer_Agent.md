@@ -1,258 +1,334 @@
 # Action Plan: Implement Advanced Agentic Designer PDF Feature
 
 ## Objective
+    print("🎨 Designer agent output found. Rendering and uploading PDF...")
+```markdown
+# Designer Agent — Complete Implementation Plan
 
-Upgrade the existing application by implementing an advanced "designer resume" feature. This new workflow will:
-1.  **Analyze Inspiration:** A new multimodal agent will accept a user's prompt and an optional inspiration image to generate a detailed design brief.
-2.  **Generate a Theme:** A second agent will use the brief to generate a Jinja2 template and CSS, explicitly using Google Fonts for high-quality typography.
-3.  **Render the PDF:** The theme and resume data will be rendered into a professional PDF using WeasyPrint.
-4.  **Deliver via Cloud:** The final PDF will be uploaded to Cloudinary, and a secure URL will be returned.
+This document is the single authoritative plan and implementation guide for the "designer/theme" feature. It's written top-to-bottom so an LLM or engineer can implement the feature without further clarification. It uses the existing code where possible and lists precise files, function signatures, data shapes, tests, and verification steps.
+
+Summary: build a stable pipeline that runs a Creative Director agent to produce design direction, then two template-generator agents that each produce strict JSON outputs containing Jinja2 templates + CSS that reference the exact variables defined by `CoverLetterFull.model_json_schema()` and `ResumeResponse.model_json_schema()`. Persist a Theme object containing both templates, render PDFs from theme + resume/cover letter data, upload PDFs to Cloudinary, and return download URLs.
 
 ---
-### ✅ **Phase 1: Update Project Dependencies & Configuration**
 
-This feature requires new libraries for cloud storage, design, and configuration management.
+## Goals / Acceptance Criteria
 
-**Action:**
-1.  Execute the following command in the project's root directory to add the required libraries using Poetry.
+- There is a `Theme` model (Pydantic / Beanie style) that stores:
+    - `name: str`
+    - `description: str`
+    - `resume_template: { template: str, styles: str }`
+    - `cover_letter_template: { template: str, styles: str }`
+    - `preview_urls` (optional) and timestamps
+- Agents must output strict JSON only. They must be instructed to use the JSON schema examples provided by `CoverLetterFull.model_json_schema()` and `ResumeResponse.model_json_schema()` so variables in Jinja templates are exact matches.
+- Templates must be valid Jinja2 and use the model fields directly (no custom placeholder syntax).
+- A `create_designed_pdfs(resume_id, cover_letter_id, theme_id, db, output_dir=None)` function exists and:
+    - fetches the resume and cover letter data objects
+    - renders HTML from both templates with the correct context
+    - creates PDFs using `app/tools/pdf_generator.create_pdf`
+    - uploads PDFs via `app/tools/file_uploader.upload_to_cloudinary`
+    - returns secure URLs and stores preview urls on the Theme (or ThemePackage)
+- No regression: existing persisted theme pipeline (ADK runner -> save theme rows) remains functional. New changes extend it.
 
-    ```bash
-    # For design, PDF, and cloud functionality
-    poetry add jinja2 weasyprint cloudinary python-dotenv
-    ```
-2.  Create a `.env` file in your project's root directory to securely store your Cloudinary credentials.
-
-    ```
-    # In .env
-    CLOUDINARY_CLOUD_NAME="your_cloud_name"
-    CLOUDINARY_API_KEY="your_api_key"
-    CLOUDINARY_API_SECRET="your_api_secret"
-    ```
 ---
-### 🛠️ **Phase 2: Implement Core Tools**
 
-These utilities provide foundational capabilities for PDF generation and file uploading.
+## High-level design (top-to-bottom)
 
-#### **1. PDF Generation Utility (`app/tools/pdf_generator.py`)**
-**Action:**
-Ensure this file exists. It uses **WeasyPrint** to convert HTML and CSS into a PDF. Its excellent support for `@import` rules is critical for using Google Fonts.
+1. Agent layer (ADK): three agents
+     - `creative_director_agent` (analysis, design brief)
+     - `resume_template_agent` (uses ResumeResponse.model_json_schema())
+     - `cover_letter_template_agent` (uses CoverLetterFull.model_json_schema())
+2. Runner orchestration: SequentialAgent(creative_director, ParallelAgent(resume_template_agent, cover_letter_template_agent))
+3. Parse agent outputs (verify JSON only, validate against small Pydantic schemas)
+4. Persist a `Theme` (Pydantic/Beanie) that contains both templates and styles
+5. PDF renderer: `create_designed_pdfs(...)` to render + PDF + upload
+6. Optional: Add an API endpoint to generate and return the PDFs on demand or serve stored URLs
 
-```python
-# In app/tools/pdf_generator.py
-from weasyprint import HTML, CSS
-
-def create_pdf(html_content: str, css_content: str, pdf_path: str) -> bool:
-    """Renders HTML and CSS content into a PDF file using WeasyPrint."""
-    try:
-        css = CSS(string=css_content)
-        html = HTML(string=html_content, base_url='.')
-        html.write_pdf(pdf_path, stylesheets=[css])
-        print(f"✅ PDF successfully generated at: {pdf_path}")
-        return True
-    except Exception as e:
-        print(f"❌ Error during PDF generation: {e}")
-        return False
-```
-
-#### **2. File Uploader Utility (`app/tools/file_uploader.py`)**
-**Action:**
-Create a new utility for uploading the generated PDF to Cloudinary.
-
-```python
-# In app/tools/file_uploader.py
-import cloudinary
-import cloudinary.uploader
-import os
-from dotenv import load_dotenv
-
-load_dotenv() # Load environment variables from .env file
-
-def configure_cloudinary():
-    """Configures the Cloudinary client with credentials from .env."""
-    cloudinary.config(
-        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-        api_key=os.getenv("CLOUDINARY_API_KEY"),
-        api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-        secure=True
-    )
-
-def upload_to_cloudinary(file_path: str, public_id: str) -> str | None:
-    """Uploads a file to Cloudinary and returns its secure URL."""
-    try:
-        configure_cloudinary()
-        upload_result = cloudinary.uploader.upload(
-            file_path,
-            public_id=public_id,
-            resource_type="auto",
-            overwrite=True
-        )
-        print(f"✅ File successfully uploaded to Cloudinary.")
-        return upload_result.get('secure_url')
-    except Exception as e:
-        print(f"❌ Cloudinary upload failed: {e}")
-        return None
-```
 ---
-### 🤖 **Phase 3: Define the Two-Stage Designer Agent Workflow**
 
-This workflow splits the design process into two distinct agentic steps for better modularity and reliability: creative direction (briefing) and code generation (designing).
+## Files to add / modify (explicit)
 
-**Action:**
-In your `strategic_resume_agent.py` file (or a dedicated `app/schemas/` file), define the Pydantic schemas for the agents' structured outputs. Then, define the agents themselves.
+- Modify: `app/agents/designer/Designer_Agent.md` (this file) — updated plan (current)
+- Modify: `app/agents/theme_agents.py` — update instructions for the two template agents to include the exact JSON schema via `.model_json_schema()` and demand Jinja2 output.
+- Add: `app/schemas/theme.py` — Pydantic models describing Theme and ThemeTemplate sub-objects (used for validation).
+- Add or modify: `app/models/theme_beanie.py` (optional) — Beanie Document for Theme (if migrating to beanie) or update `app/models/theme.py` to include Pydantic/serializers for API.
+- Modify: `app/services/theme_service.py` — add `save_theme_from_agents(final_response, db)` that accepts agent outputs, validates them, and persists them (reusing existing `create_theme` + `create_theme_package` where appropriate).
+- Add: `app/services/designer_pdf.py` — implement `create_designed_pdfs(resume_id, cover_letter_id, theme_id, db, output_dir=None)`.
+- Ensure `app/tools/pdf_generator.py` and `app/tools/file_uploader.py` match env var names and are tested.
+- Tests: `tests/test_designer_agent.py`, `tests/test_designer_pdf.py`, and update integration test that calls theme flow.
 
-#### **1. Define Pydantic Output Schemas**
-```python
-# In your schemas file or at the top of strategic_resume_agent.py
-from pydantic import BaseModel, Field
-from typing import List, Dict
-
-class DesignBriefOutputSchema(BaseModel):
-    layout_description: str = Field(description="A detailed description of the resume layout (e.g., 'two-column, minimalist').")
-    color_palette: Dict[str, str] = Field(description="A dictionary mapping color roles (e.g., 'primary', 'accent') to hex color codes.")
-    google_fonts: List[str] = Field(description="A list of suggested Google Font names (e.g., ['Lato', 'Roboto Slab']).")
-    design_prompt_for_developer: str = Field(description="A concise, regenerated prompt for the next agent to use.")
-
-class DesignerAgentOutputSchema(BaseModel):
-    jinja_template: str = Field(description="A complete Jinja2 template string for the resume.")
-    css_styles: str = Field(description="A complete CSS string to style the resume.")
-```
-
-#### **2. Define the Agents**
-```python
-# In strategic_resume_agent.py, with your other agent definitions
-
-# NEW AGENT 1: The Creative Director
-brief_agent = LlmAgent(
-  model="gemini-2.5-flash", # A multimodal model is REQUIRED for image analysis
-  name="brief_agent",
-  description="Analyzes a text prompt and an inspiration image to create a detailed design brief.",
-  instruction=(
-    "You are an expert Creative Director. Analyze the user's text prompt and the "
-    "provided inspiration image. Generate a detailed, structured JSON design brief. "
-    "This brief MUST include: a description of the layout, a color palette with hex codes "
-    "extracted from the image, a list of specific Google Fonts that closely match "
-    "the typography, and a final concise `design_prompt_for_developer` for the next agent."
-  ),
-  output_schema=DesignBriefOutputSchema,
-  output_key="design_brief",
-)
-
-# NEW AGENT 2: The UI Developer
-designer_agent = LlmAgent(
-  model="gemini-2.5-flash",
-  name="designer_agent",
-  description="""Generates a Jinja2 template and CSS stylesheet based on a detailed design brief.
-  DESIGN BRIEF:
-  {design_brief}
-  """,
-  instruction=(
-    "You are an expert front-end developer. Your task is to execute the provided "
-    "JSON design brief to generate a Jinja2 template and the corresponding CSS. "
-    "Use the layout, colors, and fonts from the brief to create the theme. "
-    "Ensure you include the specified Google Fonts using an `@import` rule at the top of the CSS. "
-    "Your response MUST be ONLY a valid JSON object containing 'jinja_template' and 'css_styles' keys."
-  ),
-  output_schema=DesignerAgentOutputSchema,
-)
-```
 ---
-### 🔗 **Phase 4: Integrate and Orchestrate the Full Workflow**
 
-Modify your main `strategic_resume_agent` function to incorporate the new agents, handle multimodal input, and call the uploader.
+## Concrete agent instructions (exact wording to embed in code)
 
-#### **1. Update the Sequential Agent Workflow**
-**Action:**
-In your `strategic_resume_agent.py` file, add the `brief_agent` and `designer_agent` to the `SequentialAgent`'s `sub_agents` list. The new sequence ensures the strategic content is generated first, then the design brief, and finally the theme code.
+Note: always include the model schema text inside the prompt to the agent by calling the model's `.model_json_schema()` at runtime and injecting it into the `instruction` field. Example: `ResumeResponse.model_json_schema()` or `CoverLetterFull.model_json_schema()`.
 
-```python
-# In strategic_resume_agent.py
-# MODIFIED SequentialAgent
-full_workflow = SequentialAgent(
-  name="full_resume_workflow",
-  sub_agents=[
-      resume_analysis_agent,
-      summary_agent,
-      brief_agent,      # NEW agent in the sequence
-      designer_agent
-  ],
-  description="Complete resume analysis, summary, creative brief, and design workflow."
-)
+1) Creative Director agent (must be multimodal)
+
+Instruction (string to pass to LlmAgent):
+
+"""
+You are a senior Creative Director and Brand Strategist. I will provide a textual brief and an optional inspiration image. Produce a single JSON object (no extra text) that follows this structure exactly:
+
+{
+    "name": "<creative theme name>",
+    "description": "<1-2 paragraph description: layout, spacing, tone>",
+    "resume_direction": "<explicit design instructions for resume templates, list of google fonts, FONTS_IMPORT string if needed>",
+    "cover_letter_direction": "<explicit design instructions for cover letter templates, list of google fonts, FONTS_IMPORT string if needed>",
+    "color_palette": {"primary":"#XXXXXX","accent":"#XXXXXX","text":"#XXXXXX"}
+}
+
+Constraints:
+- Return only valid JSON, nothing else.
+- Keep `resume_direction` and `cover_letter_direction` actionable and short (2-8 sentences each). Include exact Google Font names you want added, and provide an `@import` snippet or link for fonts.
+"""
+
+2) Resume template agent
+
+Instruction (inject ResumeResponse.model_json_schema())
+
+"""
+You are a resume template developer. Input: a JSON design brief from a creative director. Output: a single JSON object ONLY, exactly with keys: `template` and `styles`.
+
+The `template` must be a valid Jinja2 template that expects a single variable called `resume` whose structure exactly matches the following JSON Schema (use this to reference field names and types):
+
+<INJECT ResumeResponse.model_json_schema() HERE>
+
+Rules:
+- Output MUST be valid JSON only.
+- The Jinja2 template must use `resume` as the context root: e.g. `{{ resume.name }}`, `{{ resume.experiences[0].company }}`.
+- Use standard Jinja2 loops and conditionals. NO custom placeholders.
+- The `styles` value must be a complete CSS string. If you want Google Fonts, include an `@import` at the top of the CSS using the exact font names from the creative director.
+
+Example minimal `template` snippet (NOT your output):
+```
+<div class="header">
+    <h1>{{ resume.name }}</h1>
+    <p>{{ resume.contact.email }}</p>
+</div>
 ```
 
-#### **2. Update the Main Function Signature and Input**
-**Action:**
-The main function must now accept the new inputs (prompt and image). The `types.Content` object must be constructed with both text and image parts.
+Return JSON structure:
+{
+    "template": "<JINJA_TEMPLATE_STRING>",
+    "styles": "<CSS_STRING>"
+}
+
+"""
+
+3) Cover letter template agent
+
+Instruction (inject CoverLetterFull.model_json_schema())
+
+"""
+You are a cover-letter template developer. Input: the JSON design brief from the creative director. Output: a single JSON object ONLY with keys: `template` and `styles`.
+
+The `template` must be valid Jinja2 and expect a single variable called `cover_letter` that follows the schema below:
+
+<INJECT CoverLetterFull.model_json_schema() HERE>
+
+Rules and constraints are the same as the resume agent: strict JSON only, standard Jinja2 syntax, `styles` must be valid CSS and may include `@import` Google Fonts generated by the creative director.
+
+Return JSON:
+{
+    "template": "<JINJA_TEMPLATE_STRING>",
+    "styles": "<CSS_STRING>"
+}
+
+---
+
+## Pydantic / Beanie Theme model (recommended)
+
+Add a Pydantic schema for validation and a Beanie Document for storage (or adapt to your SQLAlchemy models). Example Pydantic schema (`app/schemas/theme.py`):
 
 ```python
-# In strategic_resume_agent.py
-# MODIFIED function signature
-async def strategic_resume_agent(
-    resume_id: str,
-    job_description_url: str,
-    design_prompt: str,
-    inspiration_image_data: bytes,
-    inspiration_image_mime_type: str
-):
-    # ... (chroma setup and other agent definitions remain the same) ...
+from pydantic import BaseModel
+from typing import Optional
 
-    # MODIFIED content object for multimodal input
-    content = types.Content(
-        role='user',
-        parts=[
-            types.Part(text=(
-                f"1. First, perform the strategic analysis for resume {resume_id} against job url {job_description_url}. "
-                f"2. Next, using the inspiration image provided, create a design brief based on the following prompt: '{design_prompt}'. "
-                f"3. Finally, generate the Jinja2 and CSS theme based on the brief you created."
-            )),
-            types.Part(inline_data=types.Blob(
-                mime_type=inspiration_image_mime_type,
-                data=inspiration_image_data
-            ))
-        ]
-    )
-    # ... (runner setup remains the same) ...
+class ThemeTemplate(BaseModel):
+        template: str
+        styles: str
+
+class ThemeSchema(BaseModel):
+        name: str
+        description: Optional[str]
+        resume_template: ThemeTemplate
+        cover_letter_template: ThemeTemplate
+        # Optional preview URLs
+        resume_preview_url: Optional[str]
+        cover_letter_preview_url: Optional[str]
+
+        class Config:
+                orm_mode = True
+
 ```
 
-#### **3. Update the Final Orchestration Logic**
-**Action:**
-After the `runner` loop, modify the logic to use the agent outputs to generate the PDF and upload it.
+If you adopt Beanie (MongoDB) create `app/models/theme_beanie.py`:
 
 ```python
-# In strategic_resume_agent.py, AFTER the 'async for event in runner.run_async(...)' loop
+from beanie import Document
+from typing import Optional
+from datetime import datetime
+from app.schemas.theme import ThemeSchema, ThemeTemplate
 
+class Theme(Document):
+        name: str
+        description: Optional[str]
+        resume_template: ThemeTemplate
+        cover_letter_template: ThemeTemplate
+        resume_preview_url: Optional[str] = None
+        cover_letter_preview_url: Optional[str] = None
+        created_at: datetime = datetime.utcnow()
+        updated_at: datetime = datetime.utcnow()
+
+        class Settings:
+                name = "themes"
+
+        def to_schema(self) -> ThemeSchema:
+                return ThemeSchema.from_orm(self)
+```
+
+If you remain on SQLAlchemy, update `app/models/theme.py` to store `template` and `styles` in `Text` columns and add JSON serializable helpers.
+
+---
+
+## Service: save and validate agent outputs
+
+Add `app/services/theme_service.py` functions (or extend existing) with strict validation:
+
+- `validate_and_build_theme_payload(final_response: dict) -> ThemeSchema` — validates agent outputs and builds ThemeSchema.
+- `save_theme(theme_schema: ThemeSchema, db) -> Theme` — persists Theme; if using SQLAlchemy, reuse `create_theme` + `create_theme_package` but store the Jinja templates in `Text` fields.
+
+Implementation notes:
+- Validate that the agent outputs are JSON and match the schema shape.
+- Reject responses that are not valid JSON (do not accept raw_response fallback for production).
+
+---
+
+## PDF generation & upload flow (detailed)
+
+Add a new service `app/services/designer_pdf.py` with:
+
+```python
+from jinja2 import Environment, select_autoescape
 from app.tools.pdf_generator import create_pdf
 from app.tools.file_uploader import upload_to_cloudinary
-from jinja2 import Environment
-import uuid # Ensure uuid is imported
+import tempfile, os, uuid
 
-# The final_response dictionary is built inside the loop as before.
-# It will now contain keys from all agents, including `design_brief`, `jinja_template`, etc.
+def render_template_to_html(template_str: str, context: dict) -> str:
+        env = Environment(autoescape=select_autoescape(['html', 'xml']))
+        template = env.from_string(template_str)
+        return template.render(context)
 
-jinja_template_str = final_response.get("jinja_template")
-css_styles_str = final_response.get("css_styles")
+def create_designed_pdfs(resume_obj: dict, cover_letter_obj: dict, theme: ThemeSchema, output_dir: Optional[str]=None) -> dict:
+        """
+        Renders resume and cover letter to PDFs using the provided theme and returns local paths or upload URLs.
+        """
+        # 1) Render HTML
+        resume_html = render_template_to_html(theme.resume_template.template, {'resume': resume_obj})
+        cover_html = render_template_to_html(theme.cover_letter_template.template, {'cover_letter': cover_letter_obj})
 
-if jinja_template_str and css_styles_str:
-    print("🎨 Designer agent output found. Rendering and uploading PDF...")
+        # 2) Create temp files and PDF
+        out_dir = output_dir or tempfile.gettempdir()
+        resume_pdf = os.path.join(out_dir, f"resume_{uuid.uuid4().hex[:8]}.pdf")
+        cover_pdf = os.path.join(out_dir, f"cover_{uuid.uuid4().hex[:8]}.pdf")
 
-    # 1. Render HTML from Jinja2 Template
-    env = Environment()
-    template = env.from_string(jinja_template_str)
-    # The 'final_response' dict itself is the context for rendering
-    html_output = template.render(final_response)
+        ok1 = create_pdf(resume_html, theme.resume_template.styles, resume_pdf)
+        ok2 = create_pdf(cover_html, theme.cover_letter_template.styles, cover_pdf)
 
-    # 2. Generate PDF locally (e.g., in a temporary directory)
-    local_pdf_path = f"/tmp/Designed_Resume_{resume_id}_{uuid.uuid4().hex[:8]}.pdf"
-    pdf_created = create_pdf(html_output, css_styles_str, local_pdf_path)
+        # 3) Upload using Cloudinary and return URLs
+        if ok1:
+                resume_url = upload_to_cloudinary(resume_pdf, public_id=f"designer/resume/{uuid.uuid4().hex}")
+        else:
+                resume_url = None
+        if ok2:
+                cover_url = upload_to_cloudinary(cover_pdf, public_id=f"designer/cover/{uuid.uuid4().hex}")
+        else:
+                cover_url = None
 
-    # 3. Upload PDF to Cloudinary
-    if pdf_created:
-        public_id = f"resumes/{resume_id}/{uuid.uuid4().hex}"
-        cloudinary_url = upload_to_cloudinary(local_pdf_path, public_id)
-        final_response["cloudinary_url"] = cloudinary_url
-else:
-    print("⚠️ Designer agent output not found. Skipping PDF generation and upload.")
-    final_response["cloudinary_url"] = None
-
-# Return the full dictionary, which now includes the Cloudinary URL
-return final_response
+        return {"resume_pdf": resume_pdf, "cover_pdf": cover_pdf, "resume_url": resume_url, "cover_url": cover_url}
 ```
+
+Notes:
+- WeasyPrint requires system packages (cairo, pango). Document this in README and CI.
+- `upload_to_cloudinary` must read env vars exactly as used in this repo; see caveat below.
+
+---
+
+## Integration points with existing code
+
+- `app/agents/theme_agents.py` — update agent `instruction` strings to inject `.model_json_schema()` for `ResumeResponse` and `CoverLetterFull`. Also change the output instruction to: "Return only JSON matching {your small Pydantic schema}."
+- `app/features/theme_generator.py` — replace naive JSON parse/fallback behavior with strict validation and call `validate_and_build_theme_payload`.
+- `app/tools/pdf_generator.py` & `app/tools/file_uploader.py` — confirm env var names and update to match `.env` keys (use `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`). Add graceful error messages.
+- `app/services/theme_service.py` — add `save_theme_from_agents` wrapper that validates agent JSON and persists it as a `ThemeSchema` or SQL row.
+
+---
+
+## Tests to add
+
+1. Unit test: `tests/test_theme_agent_output_validation.py`
+     - given a representative JSON output from each agent, assert validation passes and invalid outputs fail.
+2. Integration test: `tests/test_theme_generation_flow.py`
+     - mock ADK Runner to return the creative director JSON + resume & cover templates. Assert `save_theme_from_agents` persists and returns a Theme.
+3. PDF test: `tests/test_designer_pdf.py`
+     - small fixture resume/cover objects and minimal templates/styles -> call `create_designed_pdfs` (mock Cloudinary) -> assert files created and mocked upload called.
+
+---
+
+## Edge cases & failure handling
+
+- Agent returns non-JSON: treat as fatal for theme creation; log full text for debugging and return user-friendly error.
+- Template renders raise errors (missing fields): validate templates by rendering once with a minimal fixture that includes all fields defined by the model schema; if render fails, reject agents' output and surface error for re-run.
+- Long templates: persist in `Text` or Beanie Document field to avoid truncation.
+- Cloudinary failure: return local PDF path and mark upload as failed, but do not delete the local PDF until manual cleanup.
+
+---
+
+## Devops / env / dependencies
+
+- Add to poetry: `jinja2 weasyprint cloudinary python-dotenv beanie motor` (if you adopt Beanie)
+- Document system deps for WeasyPrint in README: `libpango`, `libcairo`, `gdk-pixbuf`.
+- `.env` keys expected:
+    - CLOUDINARY_CLOUD_NAME
+    - CLOUDINARY_API_KEY
+    - CLOUDINARY_API_SECRET
+
+---
+
+## Migration notes (if using SQLAlchemy)
+
+- Change `Theme.template` and `Theme.styles` columns to `Text` to store long templates and styles.
+- Add optional `resume_preview_url` and `cover_letter_preview_url` string columns.
+
+---
+
+## Example call flow (end-to-end)
+
+1. Client calls API / create-theme with `design_prompt` + `image`.
+2. `app/features/theme_generator.create_and_save_theme` runs the Runner.
+3. Agents produce validated JSON outputs and are converted to `ThemeSchema`.
+4. Persist theme via `save_theme_from_agents`.
+5. If the client requests 'render now', call `create_designed_pdfs(resume, cover, theme)` to create PDFs and upload.
+
+---
+
+## Quality gates & verification
+
+- Unit tests green.
+- Lint/formatting pass.
+- Add a small smoke script `scripts/smoke_designer.py` to run a mock ADK flow locally using the repo's mock-adk (if available) and verify saved Theme + PDF creation.
+
+---
+
+## Final notes / decisions requested
+
+When implementing, choose one of:
+- Persist templates as-is and require agents to produce strict Jinja2 (recommended). This is simplest and lowest risk.
+- Allow a custom placeholder syntax and add a translator -> more work and complexity.
+
+If you want, I will implement the first coding step: update `app/agents/theme_agents.py` instructions to inject `.model_json_schema()` and make the agent outputs strict JSON, and update `app/tools/file_uploader.py` env var names. Otherwise this plan should serve as a perfect context for an LLM to implement the feature.
+
+```
+End of plan.
+```
+
+```}

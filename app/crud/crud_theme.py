@@ -1,14 +1,18 @@
-from sqlalchemy.orm import Session
-from app.models.theme import ThemePackage, Theme
+from typing import List, Optional
+from app.schemas.theme_documents import ThemeDoc, ThemePackageDoc
 
-def get_theme_packages(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(ThemePackage).offset(skip).limit(limit).all()
 
-def get_theme_package_by_id(db: Session, theme_package_id: str):
-    return db.query(ThemePackage).filter(ThemePackage.id == theme_package_id).first()
+async def get_theme_packages(skip: int = 0, limit: int = 100) -> List[ThemePackageDoc]:
+    return await ThemePackageDoc.find_many().skip(skip).limit(limit).to_list()
 
-def get_themes(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(Theme).offset(skip).limit(limit).all()
 
-def get_theme_by_id(db: Session, theme_id: str):
-    return db.query(Theme).filter(Theme.id == theme_id).first()
+async def get_theme_package_by_id(theme_package_id: str) -> Optional[ThemePackageDoc]:
+    return await ThemePackageDoc.get(theme_package_id)
+
+
+async def get_themes(skip: int = 0, limit: int = 100) -> List[ThemeDoc]:
+    return await ThemeDoc.find_many().skip(skip).limit(limit).to_list()
+
+
+async def get_theme_by_id(theme_id: str) -> Optional[ThemeDoc]:
+    return await ThemeDoc.get(theme_id)

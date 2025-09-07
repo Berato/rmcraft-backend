@@ -1,80 +1,79 @@
-from sqlalchemy.orm import Session
-from app.models.theme import Theme, ThemeType, ThemePackage
-from app.db.session import get_db
-from sqlalchemy.exc import IntegrityError
+from typing import Dict, Any
+from app.schemas.theme import ThemeSchema, ThemeTemplate
+from app.schemas.theme_documents import ThemeDoc, ThemePackageDoc
+from app.tools.serializers import serialize_document
 
-async def create_theme(
-    db: Session,
-    name: str,
-    description: str,
-    type: ThemeType,
-    template: str,
-    styles: str
-) -> Theme:
+
+def validate_and_build_theme_payload(final_response: Dict[str, Any]) -> ThemeSchema:
+    """Validate aggregated agent outputs and construct a ThemeSchema.
+
+    Expected structure:
+        {
+          'theme_brief': { name, description, ... },
+          'resume_theme': { template, styles },
+          'cover_letter_theme': { template, styles }
+        }
     """
-    Create a new theme in the database.
+    required_top = ["theme_brief", "resume_theme", "cover_letter_theme"]
+    missing = [k for k in required_top if k not in final_response or not final_response[k]]
+    if missing:
+        raise ValueError(f"Missing required agent outputs: {missing}")
 
-    Args:
-        db: Database session
-        name: Theme name
-        description: Theme description
-        type: Theme type (RESUME or COVER_LETTER)
-        template: Jinja2 template string
-        styles: CSS styles string
+    brief = final_response["theme_brief"]
+    resume_theme = final_response["resume_theme"]
+    cover_theme = final_response["cover_letter_theme"]
 
-    Returns:
-        Created Theme object
-    """
-    theme = Theme(
-        name=name,
-        description=description,
-        type=type,
-        template=template,
-        styles=styles
+    for key in ["template", "styles"]:
+        if key not in resume_theme:
+            raise ValueError(f"resume_theme missing '{key}'")
+        if key not in cover_theme:
+            raise ValueError(f"cover_letter_theme missing '{key}'")
+
+    # Construct schema (ignore extra brief keys)
+    schema = ThemeSchema(
+        name=brief.get("name", "Untitled Theme"),
+        description=brief.get("description"),
+        resume_template=ThemeTemplate(template=resume_theme["template"], styles=resume_theme["styles"]),
+        cover_letter_template=ThemeTemplate(template=cover_theme["template"], styles=cover_theme["styles"]),
     )
-    db.add(theme)
-    db.commit()
-    db.refresh(theme)
-    return theme
+    return schema
 
-async def create_theme_package(
-    db: Session,
-    name: str,
-    description: str,
-    resume_template_id: str,
-    cover_letter_template_id: str
-) -> ThemePackage:
+async def save_theme_from_agents(final_response: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate agent JSON output and persist resume + cover letter themes + package using Beanie Documents.
+
+    Returns the saved ThemePackageDoc.
     """
-    Create a new theme package linking resume and cover letter themes.
+    theme_schema = validate_and_build_theme_payload(final_response)
 
-    Args:
-        db: Database session
-        name: Package name
-        description: Package description
-        resume_template_id: ID of the resume theme
-        cover_letter_template_id: ID of the cover letter theme
-
-    Returns:
-        Created ThemePackage object
-    """
-    # Validate referenced themes exist (FK RESTRICT)
-    resume_theme = db.query(Theme).filter(Theme.id == resume_template_id).first()
-    cover_theme = db.query(Theme).filter(Theme.id == cover_letter_template_id).first()
-    if not resume_theme or not cover_theme:
-        raise ValueError("Referenced Theme IDs must exist (FK RESTRICT)")
-
-    package = ThemePackage(
-        name=name,
-        description=description,
-        resume_template_id=resume_template_id,
-        cover_letter_template_id=cover_letter_template_id
+    # Create resume theme doc
+    resume_doc = ThemeDoc(
+        name=f"{theme_schema.name} - Resume",
+        description=theme_schema.description or "",
+        type="RESUME",
+        template=theme_schema.resume_template.template,
+        styles=theme_schema.resume_template.styles,
     )
-    db.add(package)
-    try:
-        db.commit()
-    except IntegrityError as e:
-        db.rollback()
-        # Likely unique pair violation or FK issue
-        raise e
-    db.refresh(package)
-    return package
+    await resume_doc.insert()
+
+    # Create cover letter theme doc
+    cover_doc = ThemeDoc(
+        name=f"{theme_schema.name} - Cover Letter",
+        description=theme_schema.description or "",
+        type="COVER_LETTER",
+        template=theme_schema.cover_letter_template.template,
+        styles=theme_schema.cover_letter_template.styles,
+    )
+    await cover_doc.insert()
+
+    # Create package
+    package_doc = ThemePackageDoc(
+        name=theme_schema.name,
+        description=theme_schema.description or "",
+        resumeTemplateId=str(resume_doc.id),
+        coverLetterTemplateId=str(cover_doc.id),
+    )
+    await package_doc.insert()
+    # Return a JSON-friendly dict (convert ObjectId/datetimes) to avoid FastAPI response-model
+    # validation issues when returning raw Document objects.
+    return serialize_document(package_doc)
+
