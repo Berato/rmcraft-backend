@@ -25,7 +25,6 @@ class CoverLetter(Base):
     themeId = Column(String, nullable=True, index=True)
     jobProfileId = Column(String, nullable=True, index=True)
     wordCount = Column(Integer)
-    atsScore = Column(Integer)
     metadata_json = Column('metadata', JSON, nullable=True)
     createdAt = Column(DateTime, default=datetime.utcnow)
     updatedAt = Column(DateTime, default=datetime.utcnow)

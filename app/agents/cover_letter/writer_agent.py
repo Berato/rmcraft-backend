@@ -62,37 +62,50 @@ def create_cover_letter_writer_agent(resume_query_tool, job_description_query_to
     Returns:
         LlmAgent configured for cover letter writing
     """
+    schema_string = CoverLetterContent.model_json_schema()
 
     writer_agent = LlmAgent(
-        model="gemini-2.5-flash",
-        name="cover_letter_writer_agent",
-        description="Write compelling, personalized cover letter content based on analysis outline",
-        instruction=(
-            "You are a professional cover letter writer with expertise in crafting compelling narratives. "
-            "Take the analysis outline and write engaging, personalized cover letter content that showcases the candidate's qualifications."
-            "\n\nYour task is to:"
-            "\n1. Write a compelling opening paragraph that hooks the reader and states fit"
-            "\n2. Create 2-3 body paragraphs that provide specific evidence and achievements"
-            "\n3. Include a company connection paragraph if relevant (mission, values, culture)"
-            "\n4. Write a strong closing paragraph with clear call-to-action"
-            "\n5. Choose an appropriate professional tone"
-            "\n\nWRITING GUIDELINES:"
-            "\n- Keep total length to 250-450 words (roughly 3/4 to 1 page)"
-            "\n- Use specific examples and quantifiable achievements when possible"
-            "\n- Show enthusiasm and genuine interest in the role/company"
-            "\n- Maintain professional yet personable tone"
-            "\n- Avoid generic phrases; be specific to this candidate and role"
-            "\n- Ensure all claims are backed by resume evidence"
-            "\n- Use active voice and strong action verbs"
-            "\n\nReturn structured content with opening_paragraph, body_paragraphs, company_connection, closing_paragraph, and tone."
-        ),
-        generate_content_config=types.GenerateContentConfig(
-            temperature=0.6,  # Higher temperature for creative writing
-            response_mime_type="application/json"
-        ),
-        output_schema=CoverLetterContent,
-        output_key="content",
-        tools=[resume_query_tool, job_description_query_tool],
+    model="gemini-2.5-pro",
+    name="cover_letter_writer_agent",
+    description="Write compelling, personalized cover letter content based on analysis outline",
+    instruction=(
+        "## Persona ##"
+        "\nYou are an expert career storyteller and professional cover letter writer. You excel at weaving a candidate's experience into a compelling narrative that directly addresses an employer's needs."
+
+        "\n\n## Goal ##"
+        "\nYour goal is to synthesize information from a candidate's resume and a job description to write an engaging, personalized cover letter. The final output must be a structured JSON object."
+
+        "\n\n## Tools ##"
+        "\nYou have access to the following tools to conduct your research:"
+        "\n1. `resume_query_tool(queries: list[str])`: Use this tool to find the **raw materials** for your narrative. Query it to find specific experiences, projects, and skills from the candidate's resume that can be used as evidence."
+        "\n2. `job_description_query_tool(queries: list[str])`: Use this tool to understand the **goal** of your narrative. Query it to identify the key requirements, responsibilities, and desired qualifications for the role."
+
+        "\n\n## Process ##"
+        "\n1. **Analyze the Target:** First, use the `job_description_query_tool` to understand what the employer is looking for. Identify the top 3-4 most critical requirements of the job."
+        "\n2. **Find the Evidence:** Next, use the `resume_query_tool` to search for specific examples, quantifiable achievements, and project outcomes from the candidate's background that directly address the requirements you identified."
+        "\n3. **Construct the Narrative:** Weave the evidence you found into a compelling story that includes:"
+        "\n    - A compelling opening paragraph that hooks the reader and states your fitness for the role."
+        "\n    - 2-3 body paragraphs that provide specific proof of your skills and achievements, connecting them directly to the job's needs."
+        "\n    - A paragraph that shows a genuine connection to the company's mission, values, or recent projects."
+        "\n    - A strong closing paragraph with a clear call-to-action."
+        "\n4. **Refine and Polish:** Review your draft against the Writing Guidelines to ensure the highest quality."
+
+        "\n\n## Writing Guidelines ##"
+        "\n- **Length:** Keep the total word count between 250-450 words."
+        "\n- **Specificity:** Use active voice and strong action verbs. Prioritize quantifiable achievements."
+        "\n- **Tone:** Maintain a professional yet personable and enthusiastic tone."
+        "\n- **Authenticity:** Avoid generic clichés. Be specific to the candidate and the role."
+        
+        "\n\n## Output Instructions ##"
+        "\nCRITICAL: Your final response MUST be a single, valid JSON object. Do not include markdown fences or any other text."
+        f"JSON SCHEMA: \n{schema_string}"
+    ),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.3,  # Higher temperature for creative writing
+    ),
+    output_schema=CoverLetterContent,
+    output_key="content",
+    tools=[resume_query_tool, job_description_query_tool],
     )
 
     return writer_agent
@@ -100,7 +113,7 @@ def create_cover_letter_writer_agent(resume_query_tool, job_description_query_to
 
 async def run_cover_letter_writing(
     writer_agent,
-    analysis_outline: Dict[str, Any],
+    analysis_outline: str,
     resume_id: str,
     job_description_url: str,
     optional_prompt: Optional[str],
@@ -139,7 +152,7 @@ async def run_cover_letter_writing(
     # Build the prompt with analysis context
     prompt_parts = [
         f"Write a compelling cover letter for resume {resume_id} and job at {job_description_url}.",
-        f"Analysis outline: {json.dumps(analysis_outline, indent=2)}"
+        f"Analysis outline: {analysis_outline}"
     ]
 
     if optional_prompt:

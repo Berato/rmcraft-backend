@@ -4,6 +4,8 @@ import os
 import logging
 from beanie import Document, Indexed, init_beanie
 import app.schemas
+import inspect
+
 
 dotenv.load_dotenv()
 
@@ -23,9 +25,11 @@ async def connect_to_mongo():
         db.client = AsyncMongoClient(mongo_uri)
         
         document_models = [
-            model for model in app.schemas.__dict__.values()
-            if isinstance(model, type) and issubclass(model, Document)
+            # The `inspect.isclass` argument pre-filters for only valid classes
+            obj for _, obj in inspect.getmembers(app.schemas, inspect.isclass)
+            if issubclass(obj, Document) and obj is not Document
         ]
+        
         
         if os.getenv("MONGODB_CLUSTER") is None:
             logger.error("MONGODB_CLUSTER environment variable not set")

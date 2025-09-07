@@ -80,7 +80,6 @@ def test_cover_letter_metadata_extraction():
         "resumeId": "resume-123",
         "wordCount": 350,
         "tone": "enthusiastic",
-        "atsScore": 8,
         "companyConnection": "Company mission statement",
         "bodyParagraphs": ["Para 1", "Para 2", "Para 3"],
         "createdAt": "2024-01-01T00:00:00Z"
@@ -91,6 +90,7 @@ def test_cover_letter_metadata_extraction():
     assert metadata["resumeId"] == "resume-123"
     assert metadata["wordCount"] == 350
     assert metadata["tone"] == "enthusiastic"
-    assert metadata["atsScore"] == 8
+    # atsScore field removed from schemas; ensure it's not present
+    assert "atsScore" not in metadata
     assert metadata["hasCompanyConnection"] == True
     assert metadata["bodyParagraphsCount"] == 3

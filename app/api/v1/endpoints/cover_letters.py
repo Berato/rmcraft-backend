@@ -11,118 +11,21 @@ from sqlalchemy.orm import Session
 from app.features.cover_letter_orchestrator import cover_letter_orchestrator
 from app.services.cover_letter_service import list_cover_letters, get_cover_letter_by_id
 from app.db.session import get_db
+from beanie import Document
+from app.schemas.CoverLetterSchemas import (
+    StrategicCoverLetterRequest,
+    JobProfileDetails,
+    StrategicCoverLetterResponse,
+    CoverLetterAPIResponse,
+    CoverLetterFull,
+    CoverLetterSingleResponse,
+    CoverLetterSummary,
+    CoverLetterListMeta,
+    CoverLetterListData,
+    CoverLetterListResponse,
+)
 
 router = APIRouter()
-
-
-class StrategicCoverLetterRequest(BaseModel):
-    """Request model for strategic cover letter generation"""
-    resumeId: str
-    jobDescriptionUrl: str
-    prompt: Optional[str] = None
-    saveToDb: bool = True
-
-
-class JobProfileDetails(BaseModel):
-    """Job profile details schema"""
-    title: str = ""
-    company: str = ""
-    url: str = ""
-
-
-class StrategicCoverLetterResponse(BaseModel):
-    """Response model for strategic cover letter"""
-    title: str
-    jobDetails: JobProfileDetails
-    openingParagraph: str
-    bodyParagraphs: list[str]
-    companyConnection: Optional[str] = None
-    closingParagraph: str
-    tone: str
-    finalContent: str
-    resumeId: str
-    jobProfileId: Optional[str] = None
-    createdAt: str
-    updatedAt: str
-    wordCount: int = 0
-    atsScore: int = 7
-    coverLetterId: Optional[str] = None
-    persistenceError: Optional[str] = None
-
-
-class CoverLetterAPIResponse(BaseModel):
-    """API envelope for cover letter responses"""
-    status: int
-    message: str
-    data: StrategicCoverLetterResponse
-
-
-class CoverLetterFull(BaseModel):
-    """Full cover letter payload for single fetch"""
-    id: str
-    title: str
-    jobDetails: Dict[str, Any]
-    openingParagraph: str
-    bodyParagraphs: List[str]
-    companyConnection: Optional[str] = None
-    closingParagraph: str
-    tone: str
-    finalContent: str
-    resumeId: str
-    userId: Optional[str] = None
-    themeId: Optional[str] = None
-    jobProfileId: Optional[str] = None
-    wordCount: int
-    atsScore: int
-    metadata: Optional[Dict[str, Any]] = None
-    createdAt: Optional[str] = None
-    updatedAt: Optional[str] = None
-
-
-class CoverLetterSingleResponse(BaseModel):
-    status: int
-    message: str
-    data: CoverLetterFull
-
-
-class CoverLetterSummary(BaseModel):
-    """Summary model for cover letter listing"""
-    id: str
-    title: str
-    jobDetails: Dict[str, Any]
-    resumeId: str
-    jobProfileId: Optional[str] = None
-    createdAt: str
-    updatedAt: str
-    wordCount: int
-    atsScore: int
-    finalContent: Optional[str] = None
-    openingParagraph: Optional[str] = None
-    bodyParagraphs: Optional[List[str]] = None
-    companyConnection: Optional[str] = None
-    closingParagraph: Optional[str] = None
-
-
-class CoverLetterListMeta(BaseModel):
-    """Pagination metadata for cover letter list"""
-    page: int
-    perPage: int
-    total: int
-    totalPages: int
-
-
-class CoverLetterListData(BaseModel):
-    """Data structure for cover letter list"""
-    items: List[CoverLetterSummary]
-    meta: CoverLetterListMeta
-
-
-class CoverLetterListResponse(BaseModel):
-    """Response model for cover letter list endpoint"""
-    status: int
-    message: str
-    data: CoverLetterListData
-
 
 @router.post("/strategic-create", response_model=CoverLetterAPIResponse)
 async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
@@ -168,13 +71,11 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
             companyConnection=cover_letter_data.get("companyConnection"),
             closingParagraph=cover_letter_data.get("closingParagraph", ""),
             tone=cover_letter_data.get("tone", "professional"),
-            finalContent=cover_letter_data.get("finalContent", ""),
             resumeId=cover_letter_data.get("resumeId", request.resumeId),
             jobProfileId=cover_letter_data.get("jobProfileId"),
             createdAt=cover_letter_data.get("createdAt", ""),
             updatedAt=cover_letter_data.get("updatedAt", ""),
             wordCount=cover_letter_data.get("wordCount", 0),
-            atsScore=cover_letter_data.get("atsScore", 7),
             coverLetterId=cover_letter_data.get("coverLetterId"),
             persistenceError=cover_letter_data.get("persistenceError")
         )
@@ -182,7 +83,6 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
         print("✅ Strategic cover letter generated successfully")
         print(f"   Word count: {response_data.wordCount}")
         print(f"   Tone: {response_data.tone}")
-        print(f"   ATS Score: {response_data.atsScore}")
 
         return CoverLetterAPIResponse(
             status=201,  # Created

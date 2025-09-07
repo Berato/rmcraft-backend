@@ -29,7 +29,7 @@ def validate_cover_letter_data(cover_letter_data: Dict[str, Any]) -> bool:
     """
     required_fields = [
         "openingParagraph", "bodyParagraphs", "closingParagraph",
-        "finalContent", "resumeId"
+        "resumeId"
     ]
 
     for field in required_fields:
@@ -69,7 +69,6 @@ def format_cover_letter_for_storage(cover_letter_data: Dict[str, Any]) -> Dict[s
         "title": "Strategic Cover Letter",
         "tone": "professional",
         "wordCount": len(cover_letter_data.get("finalContent", "").split()),
-        "atsScore": 7
     }
 
     for key, default_value in defaults.items():
@@ -93,7 +92,6 @@ def extract_cover_letter_metadata(cover_letter_data: Dict[str, Any]) -> Dict[str
         "resumeId": cover_letter_data.get("resumeId"),
         "wordCount": cover_letter_data.get("wordCount", 0),
         "tone": cover_letter_data.get("tone", "professional"),
-        "atsScore": cover_letter_data.get("atsScore", 7),
         "hasCompanyConnection": bool(cover_letter_data.get("companyConnection")),
         "bodyParagraphsCount": len(cover_letter_data.get("bodyParagraphs", [])),
         "createdAt": cover_letter_data.get("createdAt"),
@@ -185,7 +183,6 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
             themeId=formatted_data.get('themeId'),
             jobProfileId=formatted_data.get('jobProfileId'),
             wordCount=formatted_data.get('wordCount'),
-            atsScore=formatted_data.get('atsScore'),
             metadata_json=formatted_data.get('metadata')
         )
 
@@ -211,7 +208,6 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
             'resumeId': cover_letter.resumeId,
             'jobProfileId': cover_letter.jobProfileId,
             'wordCount': cover_letter.wordCount,
-            'atsScore': cover_letter.atsScore,
             'metadata': cover_letter.metadata_json,
             'createdAt': cover_letter.createdAt.isoformat() if cover_letter.createdAt else None,
             'updatedAt': cover_letter.updatedAt.isoformat() if cover_letter.updatedAt else None
@@ -347,7 +343,6 @@ def list_cover_letters(
             'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
             'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,
             'wordCount': cl.wordCount,
-            'atsScore': cl.atsScore
         }
 
         if include_final_content:
@@ -412,7 +407,6 @@ def get_cover_letter_by_id(db: Session, cover_letter_id: str) -> Dict[str, Any]:
         'themeId': getattr(cl, 'themeId', None),
         'jobProfileId': cl.jobProfileId,
         'wordCount': cl.wordCount,
-        'atsScore': cl.atsScore,
         'metadata': cl.metadata_json,
         'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
         'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,

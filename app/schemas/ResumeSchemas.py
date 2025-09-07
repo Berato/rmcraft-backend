@@ -196,7 +196,6 @@ class CoverLetterTypes(BaseModel):
     companyConnection: CompanyConnection
     closingParagraph: str
     tone: str
-    finalContent: str
     jobProfileId: Optional[str] = None
 
 
@@ -214,10 +213,6 @@ class SkillRequirement(BaseModel):
     frequency: int
 
 
-class ATSScore(BaseModel):
-    score: int  # 0-100
-    suggestions: List[str] = Field(default_factory=list)
-    missingKeywords: List[str] = Field(default_factory=list)
 
 
 class JobProfileAnalysis(BaseModel):
@@ -228,7 +223,6 @@ class JobProfileAnalysis(BaseModel):
     experienceLevel: Optional[str] = None
     educationLevel: Optional[str] = None
     industryKeywords: List[str] = Field(default_factory=list)
-    atsOptimization: Optional[ATSScore] = None
 
 
 class JobProfileInsights(BaseModel):

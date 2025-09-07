@@ -88,7 +88,7 @@ class MockLlmAgent:
         """Mock implementation that returns predefined responses"""
         # Mock responses for different agents
         mock_responses = {
-            "experience_agent": {
+            "strategy_advisor": {
                 "experiences": [
                     {
                         "id": "exp_1",

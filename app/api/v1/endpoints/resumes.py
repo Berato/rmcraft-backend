@@ -15,7 +15,7 @@ from app.services.resume_normalization import (
     normalize_personal_info,
 )
 from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
-from app.agents.resume.strategic.experience_agent import experience_agent_isolated
+from app.agents.resume.strategic.strategy_advisor import strategy_advisor_isolated
 import asyncio
 
 router = APIRouter()
@@ -36,31 +36,22 @@ class StrategicResumeRequest(BaseModel):
 
 # normalization helpers moved to app.services.resume_normalization
 @router.get("/", response_model=ResumeListResponse)
-def read_resumes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    resumes = crud_resume.get_resumes(db, skip=skip, limit=limit)
+async def read_resumes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieve a list of resumes with pagination.
+    
+    Args:
+        skip: Number of resumes to skip for pagination.
+        limit: Maximum number of resumes to return.
+        db: Database session dependency.
+    """
+    try:
+        # Ensure Beanie is initialized
+        resumes = await ResumeResponse.find_many().limit(limit).skip(skip).to_list()
 
-    normalized = []
-    for r in resumes:
-        # r is a SQLAlchemy model with JSON columns; coerce into predictable dict
-        item: Dict[str, Any] = {
-            "id": getattr(r, "id", ""),
-            "userId": getattr(r, "userId", ""),
-            "name": getattr(r, "name", ""),
-            "summary": getattr(r, "summary", "") or "",
-                "personalInfo": normalize_personal_info(getattr(r, "personalInfo", None)),
-                "experience": ensure_list_of_dicts(getattr(r, "experience", None)),
-                "education": ensure_list_of_dicts(getattr(r, "education", None)),
-                "skills": normalize_skills(getattr(r, "skills", None)),
-                "projects": normalize_projects(getattr(r, "projects", None)),
-            "jobDescription": getattr(r, "jobDescription", None),
-            "jobProfileId": getattr(r, "jobProfileId", None),
-            "themeId": getattr(r, "themeId", None),
-            "createdAt": getattr(r, "createdAt", None),
-            "updatedAt": getattr(r, "updatedAt", None),
-        }
-        normalized.append(item)
-
-    return {"status": 200, "message": "Resumes returned successfully", "data": normalized}
+        return {"status": 200, "message": "Resumes returned successfully", "data": resumes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.get("/{resume_id}", response_model=ResumeSingleResponse)
@@ -78,7 +69,6 @@ async def strategic_resume_analysis(
     resume_id: str = Form(...),
     job_description_url: str = Form(...),
     theme_id: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
 ):
     """
     Analyze a resume strategically against a job description using AI agents.
@@ -125,18 +115,18 @@ async def strategic_resume_analysis(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/test-experience-agent", response_model=StrategicResumeResponse)
-async def test_experience_agent(
+@router.post("/strategy-advisor", response_model=StrategicResumeResponse)
+async def test_strategy_advisor(
     resume_id: str = Form(...),
     job_description_url: str = Form(...),
 ):
     """
-    Test the isolated experience agent against a job description.
+    This endpoint develops a full strategy for creating a strategic resume and cover letter.
     
-    This endpoint uses the experience agent in isolation to:
+    This endpoint uses the strategy advisor in isolation to:
     - Parse and analyze the resume content
     - Extract relevant information from the job description URL
-    - Return plain text experience analysis
+    - Return plain text strategic analysis
     """
     try:
         # Validate that the resume exists
@@ -144,22 +134,25 @@ async def test_experience_agent(
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
-        # Call the experience agent with a safe timeout
+        # Call the strategy advisor with a safe timeout
         try:
-            result = await asyncio.wait_for(
-                experience_agent_isolated(
+            strategy = await asyncio.wait_for(
+                strategy_advisor_isolated(
                     resume=resume,
                     job_description_url=job_description_url
                 ),
                 timeout=65.0,
             )
+            # The strategy is passed to both the strategic resume agent and the strategic cover letter agent
+            await strategic_resume_agent(resume=resume, job_description_url=job_description_url, strategy=strategy)
+            await strategic_cover_letter_agent(resume=resume, job_description_url=job_description_url, strategy=strategy)
         except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Experience agent timed out; try again or check agent logs")
+            raise HTTPException(status_code=504, detail="Strategy advisor timed out; try again or check agent logs")
         
         return {
             "status": 200,
             "message": "Experience agent test completed successfully",
-            "data": result
+            "data": ""
         }
         
     except ValueError as e:

@@ -26,7 +26,7 @@ After comprehensive analysis against the official Google ADK documentation and t
 3. **Runner Configuration**
    ```python
    runner = Runner(
-       agent=experience_agent, 
+       agent=strategy_advisor, 
        session_service=session_service, 
        app_name="resume_rewrite"
    )

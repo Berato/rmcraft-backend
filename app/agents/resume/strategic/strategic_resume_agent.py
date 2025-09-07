@@ -54,7 +54,7 @@ import uuid
 from google.adk.models.lite_llm import LiteLlm
 
 OPENAI_MODEL = "openai/gpt-5-mini"
-gpt5_model = LiteLlm(model=OPENAI_MODEL)
+gpt5_model = "gemini-2.5-pro"  # Using Gemini 2.5 Pro for better performance
 
 
 def clean_json_response(raw_text: str) -> str:
@@ -127,7 +127,7 @@ fetch_jd_tool = FunctionTool(func=fetch_jd_chunks)
 
 # Create a dedicated search agent using built-in google_search (root-level only)
 search_agent = LlmAgent(
-  model=gpt5_model,
+  model="gemini-2.5-flash",
   name="search_agent", 
   description="Performs internet searches using Google Search to find current information.",
   instruction=(
@@ -340,15 +340,30 @@ async def strategic_resume_agent(
     model=gpt5_model,
     name="experience_agent",
     description="Analyze resume + job description and extract relevant experience with creative insights and JSON output.",
-    instruction=(
-      "You are an expert resume strategist. Analyze the resume and job description data. "
-      "Reword the project description to make it more specific to the job description."
-      "IMPORTANT: Always generate a unique 'id' field for each experience (e.g., 'exp_1', 'exp_2')."
-      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Use resume_query_tool to get experience data. Return structured JSON with experiences array."
+instruction=(
+    "## Persona ##"
+    "\nYou are an expert Resume Strategist and Editor. You specialize in selecting a candidate's most relevant work experiences and tailoring the language to perfectly match the requirements of a specific job description."
+
+    "\n\n## Goal ##"
+    "\nYour goal is to analyze a job description and a candidate's full work history to produce a curated list of the most relevant professional experiences. The responsibilities for each experience must be edited to highlight the skills and achievements that directly align with the target job. The final output must be a structured JSON object."
+
+    "\n\n## Tools ##"
+    "\n- `job_description_query_tool(queries: list[str])`: Use this tool to understand the **target**. Identify the key responsibilities, required skills, and keywords from the job description."
+    "\n- `resume_query_tool(queries: list[str])`: Use this tool to find the **evidence**. After analyzing the job description, use relevant keywords to search the candidate's full work history for matching experiences and achievements."
+
+    "\n\n## Process ##"
+    "\n1. **Analyze the Job:** First, use the `job_description_query_tool` to determine the most important qualifications and duties for the role."
+    "\n2. **Select Relevant Experience:** Use the keywords from your analysis to query the candidate's history with `resume_query_tool`. Identify the 2-4 most relevant past jobs to include in the tailored resume."
+    "\n3. **Tailor the Content:** For each selected job, review its responsibilities. Edit and rephrase the bullet points to use language and keywords from the job description. Focus on highlighting quantifiable achievements and direct skill matches."
+    "\n4. **Format the Output:** Assemble the curated and edited experiences into the final JSON structure. Generate a new, unique ID for each experience entry (e.g., 'exp_1', 'exp_2')."
+
+    "\n\n## Critical Rules ##"
+    "\n- **Input:** Ignore any images that may be part of the input; focus only on the text data available through your tools."
+    "\n- **Output:** Your final response MUST be a single, valid JSON object"
+    f"\n JSON Schema: \n {ExperienceAgentOutPutSchema.model_json_schema()}" 
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=1
+      temperature=0.7
     ),
     output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
@@ -360,16 +375,36 @@ async def strategic_resume_agent(
     model=gpt5_model,
     name="skills_agent",
     description="Analyze resume + job description and extract relevant skills with strategic insights and JSON output.",
-    instruction=(
-      "You are an expert skills strategist. Analyze the resume and job description data. "
-      "Identify the key skills required for the job and match them with the candidate's skills. "
-      "Look through projects and experience to identify any implicit skills or knowledge areas. Identify them and include them in the output."
-      "IMPORTANT: Always generate a unique 'id' field for each skill (e.g., 'skill_1', 'skill_2')."
-      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Use resume_query_tool to get skills data. Return structured JSON with skills array."
-    ),
+# First, ensure the schema is available in the scope where you define the agent.
+# from app.schemas.ResumeSchemas import ExperienceAgentOutPutSchema
+
+instruction=(
+    "## Persona ##"
+    "\nYou are an expert Resume Strategist and Editor. You specialize in selecting a candidate's most relevant work experiences and tailoring the language to perfectly match the requirements of a specific job description."
+
+    "\n\n## Goal ##"
+    "\nYour goal is to analyze a job description and a candidate's full work history to produce a curated list of the most relevant professional experiences. The responsibilities for each experience must be edited to highlight the skills and achievements that directly align with the target job. The final output must be a structured JSON object."
+
+    "\n\n## Tools ##"
+    "\n- `job_description_query_tool(queries: list[str])`: Use this tool to understand the **target**. Identify the key responsibilities, required skills, and keywords from the job description."
+    "\n- `resume_query_tool(queries: list[str])`: Use this tool to find the **evidence**. After analyzing the job description, use relevant keywords to search the candidate's full work history for matching experiences and achievements."
+    "\n- `search_agent_tool(queries: list[str])`: Use this tool to find additional context or information that may be relevant to the analysis."
+
+    "\n\n## Process ##"
+    "\n1. **Analyze the Job:** First, use the `job_description_query_tool` to determine the most important qualifications and duties for the role."
+    "\n2. **Select Relevant Experience:** Use the keywords from your analysis to query the candidate's history with `resume_query_tool`. Identify the 2-4 most relevant past jobs to include in the tailored resume."
+    "\n3. **Tailor the Content:** For each selected job, review its responsibilities. Edit and rephrase the bullet points to use language and keywords from the job description. Focus on highlighting quantifiable achievements and direct skill matches."
+    "\n4. **Format the Output:** Assemble the curated and edited experiences into the final JSON structure. Generate a new, unique ID for each experience entry (e.g., 'exp_1', 'exp_2')."
+
+    "\n\n## Critical Rules ##"
+    "\n- **Input:** Ignore any images that may be part of the input; focus only on the text data available through your tools."
+    "\n- **Output:** Your final response MUST be a single, valid JSON object that matches the `ExperienceAgentOutPutSchema`. Do not include markdown fences or any other text. Ensure every experience object in the final array has a unique `id` field."
+    
+    # --- ADDED AS REQUESTED ---
+    f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{SkillsAgentOutPutSchema.model_json_schema()}\n```"
+),
     generate_content_config=types.GenerateContentConfig(
-      temperature=1
+      temperature=0.7
     ),
     output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
@@ -380,16 +415,34 @@ async def strategic_resume_agent(
     model=gpt5_model,
     name="projects_agent",
     description="Analyze resume + job description and extract relevant projects with creative insights and JSON output.",
-    instruction=(
-      "You are an expert project strategist. Analyze the resume and job description data. "
-      "Reword the project description to make it more specific to the job description."
-      "IMPORTANT: Always generate a unique 'id' field for each project (e.g., 'proj_1', 'proj_2')."
-      "IMPORTANT: If a project URL is not available, set url to null or an empty string."
-      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Use resume_query_tool to get project data. Return structured JSON with projects array."
+# First, ensure the schema is available in the scope where you define the agent.
+# from app.schemas.ResumeSchemas import ProjectsAgentOutPutSchema
+
+instruction=(
+    "## Persona ##"
+    "\nYou are an expert Project Strategist. You excel at identifying a candidate's key projects and reframing their descriptions to powerfully demonstrate their value for a specific job opportunity."
+
+    "\n\n## Goal ##"
+    "\nYour goal is to analyze a job description and a candidate's portfolio of projects to produce a curated list of their most relevant projects. The description for each project must be edited to highlight the skills and outcomes that directly align with the target job. The final output must be a structured JSON object."
+
+    "\n\n## Tools ##"
+    "\n- `job_description_query_tool(queries: list[str])`: Use this tool to understand the **target**. Identify the key technologies, methodologies, and desired outcomes mentioned in the job description."
+    "\n- `resume_query_tool(queries: list[str])`: Use this tool to find the **evidence**. After analyzing the job description, search the candidate's full list of projects to find those that best demonstrate the required skills."
+
+    "\n\n## Process ##"
+    "\n1. **Analyze the Job:** Use `job_description_query_tool` to determine the most important skills and project types the employer is looking for (e.g., 'experience with data migration projects', 'agile development')."
+    "\n2. **Select Relevant Projects:** Use the keywords from your analysis to query the candidate's history with `resume_query_tool`. Identify the 2-3 most impactful projects to feature."
+    "\n3. **Tailor the Descriptions:** For each selected project, rewrite its description. Emphasize the aspects that align with the job description. Use keywords from the job description and focus on the project's business impact or technical achievements."
+    "\n4. **Format the Output:** Assemble the curated and edited projects into the final JSON structure. Generate a new, unique ID for each project (e.g., 'proj_1'). If a project URL is not available, set the 'url' field to an empty string."
+
+    "\n\n## Critical Rules ##"
+    "\n- **Input:** Ignore any images that may be part of the input; focus only on the text data available through your tools."
+    "\n- **Output:** Your final response MUST be a single, valid JSON object that matches the `ProjectsAgentOutPutSchema`. Do not include markdown fences or any other text. Ensure every project object in the final array has a unique `id` field."
+    
+    f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{ProjectsAgentOutPutSchema.model_json_schema()}\n```"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=1
+      temperature=0.7
     ),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
@@ -400,15 +453,36 @@ async def strategic_resume_agent(
     model=gpt5_model,
     name="summary_agent",
     description="Write a creative, compelling professional summary for the resume with JSON output.",
-    instruction=(
-      "You are an expert career storyteller. Analyze the resume and job description data. "
-      "Incorporate key experiences, skills, and projects into a cohesive narrative."
-      "Tone should be personable, professional and natural."
-      "IMPORTANT: If there are any images in the input, ignore them completely. Focus only on the resume and job description data available through the provided tools. "
-      "Use resume_query_tool to get summary data. Return structured JSON with summary string."
+    # First, ensure the schema is available in the scope where you define the agent.
+# from app.schemas.ResumeSchemas import SummaryAgentOutPutSchema
+
+instruction=(
+    "## Persona ##"
+    "\nYou are an expert Career Storyteller and Resume Writer. Your superpower is distilling a candidate's entire career into a powerful, concise, and compelling professional summary."
+
+    "\n\n## Goal ##"
+    "\nYour goal is to write a 3-5 sentence professional summary that serves as the 'elevator pitch' at the top of a resume. This summary must be tailored to a specific job description, highlighting the candidate's most impressive and relevant qualifications. The final output must be a structured JSON object."
+
+    "\n\n## Tools ##"
+    "\n- `job_description_query_tool(queries: list[str])`: Use this to identify the **most critical keywords and qualifications** the employer is seeking."
+    "\n- `resume_query_tool(queries: list[str])`: Use this to find the **candidate's peak achievements**. Look for quantifiable results, key projects, and top-level skills that match the job."
+    "\n- `search_agent_tool(query: str)`: (Optional) Use this to quickly understand the company's industry or mission to add a relevant keyword (e.g., 'passionate about renewable energy')."
+
+    "\n\n## Process ##"
+    "\n1. **Identify Core Keywords:** Use the `job_description_query_tool` to find the top 3-4 keywords or phrases (e.g., 'senior project manager', 'data-driven decision making')."
+    "\n2. **Find Peak Achievements:** Use the `resume_query_tool` to find the most impressive, quantifiable achievements from the candidate's experience and projects (e.g., 'led a team of 10', 'increased efficiency by 25%')."
+    "\n3. **Synthesize the Narrative:** Combine the keywords and achievements into a compelling 3-5 sentence narrative. Start with the candidate's title and years of experience, follow with 1-2 key accomplishments, mention core skills, and end with a statement about their professional goals as they relate to the company."
+    "\n4. **Format the Output:** Place the final, polished summary string into the required JSON structure."
+
+    "\n\n## Critical Rules ##"
+    "\n- **Input:** Ignore any images that may be part of the input; focus only on the text data available through your tools."
+    "\n- **Tone:** The tone must be confident, professional, and personable."
+    "\n- **Output:** Your final response MUST be a single, valid JSON object that matches the `SummaryAgentOutPutSchema`. Do not include markdown fences or any other text."
+    
+    f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{SummaryAgentOutPutSchema.model_json_schema()}\n```"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=1
+      temperature=0.8
     ),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",

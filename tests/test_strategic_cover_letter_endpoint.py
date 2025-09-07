@@ -31,7 +31,6 @@ async def test_cover_letter_endpoint_success():
         "createdAt": "2024-01-01T00:00:00Z",
         "updatedAt": "2024-01-01T00:00:00Z",
         "wordCount": 150,
-        "atsScore": 8,
         "coverLetterId": "test-cover-letter-id"
     }
 
@@ -50,7 +49,6 @@ async def test_cover_letter_endpoint_success():
         assert response.data.resumeId == "test-resume-123"
         assert response.data.finalContent == "Full cover letter content..."
         assert response.data.wordCount == 150
-        assert response.data.atsScore == 8
         assert response.data.coverLetterId == "test-cover-letter-id"
         assert response.data.persistenceError is None
 
@@ -135,8 +133,7 @@ async def test_cover_letter_endpoint_no_save_to_db():
         "resumeId": "test-resume-123",
         "createdAt": "2024-01-01T00:00:00Z",
         "updatedAt": "2024-01-01T00:00:00Z",
-        "wordCount": 150,
-        "atsScore": 8
+    "wordCount": 150
         # No coverLetterId since not saved
     }
 
@@ -214,7 +211,6 @@ async def test_list_cover_letters_endpoint_success():
                 'createdAt': '2024-01-01T00:00:00',
                 'updatedAt': '2024-01-01T00:00:00',
                 'wordCount': 150,
-                'atsScore': 8
             }
         ],
         'meta': {

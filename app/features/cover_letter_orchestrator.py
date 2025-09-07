@@ -33,6 +33,7 @@ except ImportError:
         '__init__': lambda self, text=None, inline_data=None: None
     })
 
+import logging
 import chromadb
 import asyncio
 import uuid
@@ -40,6 +41,7 @@ import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+from app.schemas.CoverLetterSchemas import CoverLetterFull
 from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
 from app.agents.cover_letter.analyst_agent import create_cover_letter_analyst_agent, run_cover_letter_analysis
@@ -47,6 +49,7 @@ from app.agents.cover_letter.writer_agent import create_cover_letter_writer_agen
 from app.agents.cover_letter.editor_agent import create_cover_letter_editor_agent, run_cover_letter_editing
 from app.db.session import SessionLocal
 from app.services.cover_letter_service import save_cover_letter
+from app.schemas.ResumeSchemas import ResumeResponse
 
 
 def process_resume_for_chroma(resume_json: dict) -> tuple[list[str], list[dict], list[str]]:
@@ -148,7 +151,8 @@ async def cover_letter_orchestrator(
 
     # Step 1: Validate inputs and fetch resume
     print("📄 Step 1: Fetching resume data...")
-    resume = get_resume_pydantic(resume_id)
+    resume = await ResumeResponse.find_one({"_id": resume_id})
+    
     if not resume:
         raise ValueError(f"Resume not found for id: {resume_id}")
 
@@ -229,51 +233,52 @@ async def cover_letter_orchestrator(
         session_service, editing_session_id
     )
 
+    logging.info(f"Editing phase completed successfully: {editing_result}")
     if not editing_result:
         raise ValueError("Failed to edit cover letter content")
 
     # Step 10: Assemble final response
     print("📋 Step 8: Assembling final cover letter...")
-    final_content = assemble_cover_letter_content(editing_result)
 
     # Build response
-    response_data = {
-        "title": "Strategic Cover Letter",
-        "jobDetails": {
-            "title": analysis_result.get("role_summary", ""),
-            "company": analysis_result.get("company_summary", ""),
-            "url": job_description_url
-        },
-        "openingParagraph": editing_result.get("opening_paragraph", ""),
-        "bodyParagraphs": editing_result.get("body_paragraphs", []),
-        "companyConnection": editing_result.get("company_connection"),
-        "closingParagraph": editing_result.get("closing_paragraph", ""),
-        "tone": editing_result.get("tone", "professional"),
-        "finalContent": final_content,
-        "resumeId": resume_id,
-        "createdAt": datetime.now().isoformat(),
-        "updatedAt": datetime.now().isoformat(),
-        "wordCount": editing_result.get("word_count", 0),
-        "atsScore": editing_result.get("ats_score", 7)
-    }
+    response_data = editing_result
 
     # Persist to database if requested
     if save_to_db:
         print("💾 Step 9: Saving cover letter to database...")
-        db = SessionLocal()
         try:
-            saved_cover_letter = save_cover_letter(response_data, db)
-            response_data['coverLetterId'] = saved_cover_letter['id']
-            print(f"✅ Cover letter saved with ID: {saved_cover_letter['id']}")
+            # Map incoming snake_case or mixed keys to the camelCase shape required by CoverLetterFull
+            mapped = {
+                "id": response_data.get("id") or str(uuid.uuid4()),
+                "title": response_data.get("title") or response_data.get("title_text") or "Strategic Cover Letter",
+                "jobDetails": response_data.get("jobDetails") or response_data.get("job_details") or {},
+                "openingParagraph": response_data.get("openingParagraph") or response_data.get("opening_paragraph") or "",
+                "bodyParagraphs": response_data.get("bodyParagraphs") or response_data.get("body_paragraphs") or [],
+                "companyConnection": response_data.get("companyConnection") or response_data.get("company_connection"),
+                "closingParagraph": response_data.get("closingParagraph") or response_data.get("closing_paragraph") or "",
+                "tone": response_data.get("tone") or response_data.get("tone_text") or "professional",
+                "resumeId": response_data.get("resumeId") or response_data.get("resume_id") or resume_id,
+                "userId": response_data.get("userId") or response_data.get("user_id"),
+                "themeId": response_data.get("themeId") or response_data.get("theme_id"),
+                "jobProfileId": response_data.get("jobProfileId") or response_data.get("job_profile_id"),
+                "wordCount": response_data.get("wordCount") or response_data.get("word_count") or 0,
+                "metadata": response_data.get("metadata") or response_data.get("meta"),
+                "createdAt": response_data.get("createdAt") or response_data.get("created_at") or datetime.utcnow().isoformat(),
+                "updatedAt": response_data.get("updatedAt") or response_data.get("updated_at") or datetime.utcnow().isoformat(),
+            }
+
+            doc = CoverLetterFull(**mapped)
+            saved_cover_letter = await doc.insert()
+            mapped['coverLetterId'] = saved_cover_letter.id
+            print(f"✅ Cover letter saved with ID: {saved_cover_letter.id}")
         except Exception as e:
             print(f"⚠️ Failed to save cover letter to database: {e}")
             # Don't fail the entire request, just log the error
-            response_data['persistenceError'] = str(e)
-        finally:
-            db.close()
+            mapped['persistenceError'] = str(e)
+
 
     print("✅ Strategic cover letter generation completed!")
-    return response_data
+    return mapped
 
 
 def assemble_cover_letter_content(edited_content: Dict[str, Any]) -> str:

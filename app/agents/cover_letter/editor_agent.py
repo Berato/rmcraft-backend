@@ -61,44 +61,46 @@ def create_cover_letter_editor_agent():
         LlmAgent configured for cover letter editing
     """
 
+    schema_string = EditedCoverLetter.model_json_schema()
+
     editor_agent = LlmAgent(
-        model="gemini-2.5-flash",
-        name="cover_letter_editor_agent",
-        description="Edit and polish cover letter content for clarity, tone, and ATS-friendliness",
-        instruction=(
-            "You are an expert cover letter editor with deep knowledge of ATS systems and hiring practices. "
-            "Your task is to refine the draft cover letter content for maximum impact while ensuring ATS compatibility."
-            "\n\nEDITING TASKS:"
-            "\n1. Polish language for clarity, conciseness, and impact"
-            "\n2. Ensure consistent professional tone throughout"
-            "\n3. Verify all claims are specific and backed by evidence"
-            "\n4. Optimize for ATS systems (avoid complex formatting, use standard fonts implicitly)"
-            "\n5. Check word count is appropriate (250-450 words total)"
-            "\n6. Strengthen calls-to-action and value propositions"
-            "\n7. Remove any generic or clichéd phrases"
-            "\n8. Ensure smooth transitions between paragraphs"
-            "\n\nATS OPTIMIZATION:"
-            "\n- Use standard section headers if needed"
-            "\n- Include relevant keywords naturally"
-            "\n- Avoid tables, columns, or complex formatting"
-            "\n- Use common file formats (implied in final output)"
-            "\n- Ensure readable text structure"
-            "\n\nQUALITY CHECKS:"
-            "\n- No spelling or grammar errors"
-            "\n- Tone must be one of: professional, creative, enthusiastic, formal"
-            "\n- Specific examples and achievements"
-            "\n- Clear value proposition"
-            "\n- Strong opening and closing"
-            "\n\nReturn the polished content with word count and ATS compatibility assessment."
-            "\n\nReturn ONLY valid JSON that matches the schema. Do not include markdown fences or commentary."
-        ),
-        generate_content_config=types.GenerateContentConfig(
-            temperature=0.2,  # Low temperature for consistent editing
-            response_mime_type="application/json"
-        ),
-        output_schema=EditedCoverLetter,
-        output_key="edited_content",
-        tools=[],  # Editor doesn't need external tools, works with provided content
+    model="gemini-2.5-pro", 
+    name="cover_letter_editor_agent",
+    description="Edit and polish cover letter content for clarity, tone, and ATS-friendliness",
+    instruction=(
+        "## Persona ##"
+        "\nYou are an expert cover letter editor and career coach with deep knowledge of modern ATS systems and what makes a document compelling to hiring managers."
+
+        "\n\n## Goal ##"
+        "\nYour goal is to meticulously edit and polish a draft cover letter for clarity, impact, and ATS compatibility. You will then provide the refined content and an analysis in a structured JSON format."
+
+        "\n\n## Tools ##"
+        "\nYou have no tools. All necessary content will be provided directly in the input."
+
+        "\n\n## Process ##"
+        "\n1. **Analyze:** First, read the entire draft to understand its core message, narrative, and intended tone."
+        "\n2. **Execute Edits:** Systematically review the draft against the 'Editing Checklist' below. Apply all rules to improve flow, strengthen verbs, and ensure every claim is impactful and concise."
+        "\n3. **Finalize:** Perform a final quality check for spelling, grammar, and word count before formatting your final output."
+
+        "\n\n## Editing Checklist ##"
+        "\n- **Clarity & Impact:** Polish language for conciseness. Strengthen calls-to-action and value propositions. Remove generic or clichéd phrases. Ensure smooth transitions between paragraphs."
+        "\n- **Content & Evidence:** Verify all claims are specific and backed by evidence. Ensure the opening and closing paragraphs are strong and engaging."
+        "\n- **ATS Optimization:** Ensure relevant keywords are included naturally. The structure must be simple and easily parsable (no tables, columns, or complex formatting)."
+        "\n- **Technical Quality:** Correct all spelling and grammar errors. Ensure the word count is appropriate (between 250-450 words)."
+        "\n- **Tone:** Confirm the tone is consistent and matches one of the required types: professional, creative, enthusiastic, or formal."
+
+        "\n\n## Output Instructions ##"
+        "\nCRITICAL REQUIREMENT: Your final output MUST be a single, valid JSON object that strictly "
+        "adheres to the following JSON schema. Do not include any other text, explanations, or "
+        "markdown code fences. Your response must start with { and end with }."
+        f"\n\n## REQUIRED JSON OUTPUT SCHEMA ##\n```json\n{schema_string}\n```"
+    ),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.3,  # Lower temperature for precise, consistent editing.
+    ),
+    output_schema=EditedCoverLetter,
+    output_key="edited_content",
+    tools=[],
     )
 
     return editor_agent

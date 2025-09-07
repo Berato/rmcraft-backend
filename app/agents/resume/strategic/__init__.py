@@ -6,9 +6,9 @@ from .strategic_resume_agent import (
     process_resumes_for_chroma,
 )
 
-# Isolated experience agent utilities (plain-text, no JSON schema)
-from .experience_agent import (
-    experience_agent_isolated,
+# Isolated strategy advisor utilities (plain-text, no JSON schema)
+from .strategy_advisor import (
+    strategy_advisor_isolated,
 )
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "search_agent_tool",
     "fetch_jd_tool",
     "process_resumes_for_chroma",
-    "experience_agent_isolated",
+    "strategy_advisor_isolated",
 ]

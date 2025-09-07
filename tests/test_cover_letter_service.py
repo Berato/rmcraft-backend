@@ -74,8 +74,7 @@ async def test_save_cover_letter_success():
         "tone": "professional",
         "finalContent": "Full cover letter content...",
         "resumeId": "test-resume-123",
-        "wordCount": 150,
-        "atsScore": 8
+    "wordCount": 150
     }
 
     # Mock session and model
@@ -161,7 +160,6 @@ async def test_list_cover_letters_basic():
     mock_cover_letter.createdAt.isoformat.return_value = "2024-01-01T00:00:00"
     mock_cover_letter.updatedAt.isoformat.return_value = "2024-01-01T00:00:00"
     mock_cover_letter.wordCount = 150
-    mock_cover_letter.atsScore = 8
     mock_cover_letter.finalContent = "Full content..."
 
     mock_session = MagicMock(spec=Session)
@@ -245,7 +243,6 @@ async def test_list_cover_letters_with_include():
     mock_cover_letter.createdAt.isoformat.return_value = "2024-01-01T00:00:00"
     mock_cover_letter.updatedAt.isoformat.return_value = "2024-01-01T00:00:00"
     mock_cover_letter.wordCount = 150
-    mock_cover_letter.atsScore = 8
     mock_cover_letter.finalContent = "Full content..."
 
     mock_session = MagicMock(spec=Session)

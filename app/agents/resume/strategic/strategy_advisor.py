@@ -1,7 +1,7 @@
 """
-Isolated Experience Agent
+Isolated Strategy Advisor
 
-Builds and runs only the experience-focused agent with the same tools
+Builds and runs only the strategy-focused agent with the same tools
 as in the strategic agent, but without any JSON formatting or extra agents.
 """
 
@@ -149,12 +149,12 @@ def process_resumes_for_chroma(resume_json: dict) -> tuple[list[str], list[dict]
 	return documents, metadatas, ids
 
 
-async def experience_agent_isolated(
+async def strategy_advisor_isolated(
 	resume: ResumeResponse,
 	job_description_url: str,
 	prompt: Optional[str] = None,
 ) -> str:
-	"""Run the isolated experience agent and return the final plain-text response."""
+	"""Run the isolated strategy advisor and return the final plain-text response."""
 	if not resume:
 		raise ValueError("Resume is required")
 
@@ -245,10 +245,10 @@ async def experience_agent_isolated(
 
 	# Single agent, no JSON/schema output
 	try:
-		experience_agent = LlmAgent(
+		strategy_advisor = LlmAgent(
 			model="gemini-2.5-flash",
-			name="experience_agent",
-			description="Analyze resume + job description and extract relevant experience with creative insights.",
+			name="strategy_advisor",
+			description="Analyze resume + job description and provide strategic insights for resume optimization.",
 			instruction=(
 	    "You are an elite Resume Strategist and Career Coach. Your mission is to create a "
 	    "comprehensive STRATEGIC ACTION PLAN to guide the rewrite of a candidate's resume "
@@ -288,7 +288,7 @@ async def experience_agent_isolated(
 					thinking_budget=4096,
 				)
 			),
-			generate_content_config=types.GenerateContentConfig(temperature=1),
+			generate_content_config=types.GenerateContentConfig(temperature=0.5),
 			tools=[resume_query_tool, job_description_query_tool],
 		)
 
@@ -296,8 +296,8 @@ async def experience_agent_isolated(
 		session_service = InMemorySessionService()
 		session_id = "test-session-123"
 		user_id = "test-123"
-		session = await session_service.create_session(user_id=user_id, session_id=session_id, app_name="experience_agent_only")
-		runner = Runner(agent=experience_agent, session_service=session_service, app_name="experience_agent_only")
+		session = await session_service.create_session(user_id=user_id, session_id=session_id, app_name="strategy_advisor_only")
+		runner = Runner(agent=strategy_advisor, session_service=session_service, app_name="strategy_advisor_only")
 	  
 		content_parts = [
 			types.Part(text=(
@@ -327,5 +327,5 @@ async def experience_agent_isolated(
 
 
 __all__ = [
-	"experience_agent_isolated",
+	"strategy_advisor_isolated",
 ]
