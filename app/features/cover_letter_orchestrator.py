@@ -50,6 +50,8 @@ from app.agents.cover_letter.editor_agent import create_cover_letter_editor_agen
 from app.db.session import SessionLocal
 from app.services.cover_letter_service import save_cover_letter
 from app.schemas.ResumeSchemas import ResumeResponse
+from bson.objectid import ObjectId
+
 
 
 def process_resume_for_chroma(resume_json: dict) -> tuple[list[str], list[dict], list[str]]:
@@ -151,8 +153,8 @@ async def cover_letter_orchestrator(
 
     # Step 1: Validate inputs and fetch resume
     print("📄 Step 1: Fetching resume data...")
-    resume = await ResumeResponse.find_one({"_id": resume_id})
-    
+    resume = await ResumeResponse.find_one({"_id": ObjectId(resume_id)})
+
     if not resume:
         raise ValueError(f"Resume not found for id: {resume_id}")
 

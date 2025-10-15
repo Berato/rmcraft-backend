@@ -108,3 +108,31 @@ def minimal_theme_for_testing() -> ThemeSchema:
             styles="""body { font-family: Helvetica; } .cover-letter { font-size: 12px; }""",
         ),
     )
+
+
+def get_example_theme() -> ThemeSchema:
+    """Return the reference example theme used in agent training.
+    
+    This is the well-proportioned, professional theme that demonstrates
+    proper spacing and prevents summary overflow issues.
+    """
+    from app.schemas.theme import ThemeTemplate
+    from app.agents.theme_examples import get_resume_example_for_agent, get_cover_letter_example_for_agent
+    
+    resume_example = get_resume_example_for_agent()
+    cover_example = get_cover_letter_example_for_agent()
+    
+    return ThemeSchema(
+        name="Example Professional Theme",
+        description="Reference theme demonstrating proper proportions and compact spacing. "
+                   "Summary section uses 10pt font with 1.4 line-height, targeting ~1.2in height (11% of page). "
+                   "This prevents the summary from taking up an entire page.",
+        resume_template=ThemeTemplate(
+            template=resume_example['template'],
+            styles=resume_example['styles'],
+        ),
+        cover_letter_template=ThemeTemplate(
+            template=cover_example['template'],
+            styles=cover_example['styles'],
+        ),
+    )

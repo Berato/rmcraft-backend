@@ -54,7 +54,7 @@ import uuid
 from google.adk.models.lite_llm import LiteLlm
 
 OPENAI_MODEL = "openai/gpt-5-mini"
-gpt5_model = "gemini-2.5-pro"  # Using Gemini 2.5 Pro for better performance
+gpt5_model = LiteLlm("openai/gpt-5-mini")  # Using Gemini 2.0 Flash for better performance
 
 
 def clean_json_response(raw_text: str) -> str:
@@ -136,7 +136,7 @@ search_agent = LlmAgent(
     "Focus on providing factual, current information from reliable sources."
   ),
   generate_content_config=types.GenerateContentConfig(
-    temperature=1
+    temperature=0.75
   ),
   tools=[google_search],
 )
@@ -363,7 +363,7 @@ instruction=(
     f"\n JSON Schema: \n {ExperienceAgentOutPutSchema.model_json_schema()}" 
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.7
+      temperature=1
     ),
     output_schema=ExperienceAgentOutPutSchema,
     output_key="experiences",
@@ -404,7 +404,7 @@ instruction=(
     f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{SkillsAgentOutPutSchema.model_json_schema()}\n```"
 ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.7
+      temperature=1
     ),
     output_schema=SkillsAgentOutPutSchema,
     output_key="skills",
@@ -442,7 +442,7 @@ instruction=(
     f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{ProjectsAgentOutPutSchema.model_json_schema()}\n```"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.7
+      temperature=1
     ),
     output_schema=ProjectsAgentOutPutSchema,
     output_key="projects",
@@ -482,7 +482,7 @@ instruction=(
     f"\n\n## REQUIRED JSON SCHEMA ##\n```json\n{SummaryAgentOutPutSchema.model_json_schema()}\n```"
     ),
     generate_content_config=types.GenerateContentConfig(
-      temperature=0.8
+      temperature=1
     ),
     output_schema=SummaryAgentOutPutSchema,
     output_key="summary",
@@ -561,7 +561,7 @@ instruction=(
 
   # Run the agent with a safety timeout to avoid indefinite hangs when models return
   # non-final events (e.g., function_calls) or when downstream services are slow.
-  timeout_seconds = 60
+  timeout_seconds = 600
   loop = asyncio.get_running_loop()
   start_time = loop.time()
   async for event in runner.run_async(new_message=content, session_id=session_id, user_id="user_123"):

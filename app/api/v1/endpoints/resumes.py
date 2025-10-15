@@ -92,7 +92,7 @@ async def strategic_resume_analysis(
                     resume=resume,
                     job_description_url=job_description_url
                 ),
-                timeout=65.0,
+                timeout=650.0,
             )
 
             validated_result = None
@@ -143,9 +143,9 @@ async def test_strategy_advisor(
                 ),
                 timeout=65.0,
             )
-            # The strategy is passed to both the strategic resume agent and the strategic cover letter agent
-            await strategic_resume_agent(resume=resume, job_description_url=job_description_url, strategy=strategy)
-            await strategic_cover_letter_agent(resume=resume, job_description_url=job_description_url, strategy=strategy)
+            # The strategy is generated but not currently used by agents
+            # TODO: Integrate strategy with agents when they support it
+            pass
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="Strategy advisor timed out; try again or check agent logs")
         

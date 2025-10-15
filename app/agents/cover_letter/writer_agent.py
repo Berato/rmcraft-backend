@@ -65,7 +65,7 @@ def create_cover_letter_writer_agent(resume_query_tool, job_description_query_to
     schema_string = CoverLetterContent.model_json_schema()
 
     writer_agent = LlmAgent(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     name="cover_letter_writer_agent",
     description="Write compelling, personalized cover letter content based on analysis outline",
     instruction=(

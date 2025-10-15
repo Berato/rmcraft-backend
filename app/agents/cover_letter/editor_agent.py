@@ -64,7 +64,7 @@ def create_cover_letter_editor_agent():
     schema_string = EditedCoverLetter.model_json_schema()
 
     editor_agent = LlmAgent(
-    model="gemini-2.5-pro", 
+    model="gemini-2.5-flash", 
     name="cover_letter_editor_agent",
     description="Edit and polish cover letter content for clarity, tone, and ATS-friendliness",
     instruction=(

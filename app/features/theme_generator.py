@@ -1,5 +1,5 @@
 from google.adk.agents import SequentialAgent, ParallelAgent
-from app.agents.theme_agents import theme_analyst_agent, resume_theme_agent, cover_letter_theme_agent
+from app.agents.theme_agents import theme_analyst_agent, resume_theme_agent, cover_letter_theme_agent, structured_theme_analyst_agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -23,6 +23,7 @@ full_theme_workflow = SequentialAgent(
     description="Analyzes a design request and then generates a complete theme package.",
     sub_agents=[
         theme_analyst_agent,
+        structured_theme_analyst_agent,
         parallel_theme_creation
     ]
 )
@@ -67,7 +68,7 @@ async def create_and_save_theme(design_prompt: str, image_data: bytes, image_mim
                 response_data = json.loads(response_text)
                 
                 # Map agent names to output keys based on the agent definitions
-                if event.author == "theme_analyst_agent":
+                if event.author == "structured_theme_analyst_agent":
                     final_response["theme_brief"] = response_data
                     print(f"✅ Stored theme_brief: {list(response_data.keys()) if isinstance(response_data, dict) else type(response_data)}")
                 elif event.author == "resume_theme_agent":
@@ -81,7 +82,7 @@ async def create_and_save_theme(design_prompt: str, image_data: bytes, image_mim
                 print(f"❌ Failed to parse JSON from {event.author}: {e}")
                 print(f"   Raw response: {response_text}")
                 # Store as raw text fallback
-                if event.author == "theme_analyst_agent":
+                if event.author == "structured_theme_analyst_agent":
                     final_response["theme_brief"] = {"raw_response": response_text}
                 elif event.author == "resume_theme_agent":
                     final_response["resume_theme"] = {"raw_response": response_text}

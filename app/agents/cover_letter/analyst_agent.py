@@ -59,7 +59,7 @@ def create_cover_letter_analyst_agent(resume_query_tool, job_description_query_t
     """
 
     analyst_agent = LlmAgent(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     name="cover_letter_analyst_agent",
     description="Analyze resume, job description, and public profiles to create a strategic markdown blueprint.",
     instruction=(

@@ -12,6 +12,9 @@ from app.features.cover_letter_orchestrator import cover_letter_orchestrator
 from app.services.cover_letter_service import list_cover_letters, get_cover_letter_by_id
 from app.db.session import get_db
 from beanie import Document
+from datetime import datetime
+from uuid import UUID
+from app.models.cover_letter import CoverLetter
 from app.schemas.CoverLetterSchemas import (
     StrategicCoverLetterRequest,
     JobProfileDetails,
@@ -24,6 +27,7 @@ from app.schemas.CoverLetterSchemas import (
     CoverLetterListData,
     CoverLetterListResponse,
 )
+from app.schemas.cover_letter_manual import CoverLetterManualCreate, CoverLetterManualResponse
 
 router = APIRouter()
 
@@ -192,20 +196,56 @@ async def list_cover_letters_endpoint(
         )
 
 
-@router.get("/{cover_letter_id}", response_model=CoverLetterSingleResponse)
-async def get_cover_letter_endpoint(cover_letter_id: str, db: Session = Depends(get_db)):
+@router.post("/manual-create", response_model=CoverLetterManualResponse)
+async def create_manual_cover_letter(request: CoverLetterManualCreate, db: Session = Depends(get_db)):
     """
-    Get a single cover letter with all fields.
+    Create a cover letter manually without using AI agents.
+
+    This endpoint allows clients to provide their own cover letter content
+    and metadata, which is then validated and stored in the database.
     """
     try:
-        cl = get_cover_letter_by_id(db, cover_letter_id)
-        return CoverLetterSingleResponse(
-            status=200,
-            message="Cover letter retrieved successfully",
-            data=CoverLetterFull(**cl)
+        # Validate and sanitize the raw_text (limit size to prevent abuse)
+        if len(request.raw_text) > 50000:  # 50KB limit
+            raise HTTPException(status_code=422, detail="Cover letter text exceeds maximum length (50KB)")
+
+        # Create the cover letter record
+        cover_letter = CoverLetter(
+            title=request.title,
+            finalContent=request.raw_text,  # Store the manual text here
+            resumeId=str(request.resume_id) if request.resume_id else None,
+            jobProfileId=str(request.job_profile_id) if request.job_profile_id else None,
+            userId=str(request.user_id) if request.user_id else None,
+            # Set defaults for other fields
+            tone="manual",
+            wordCount=len(request.raw_text.split()),  # Approximate word count
+            metadata_json={"notes": request.notes} if request.notes else None,
+            createdAt=datetime.utcnow(),
+            updatedAt=datetime.utcnow()
         )
+
+        # Save to database
+        db.add(cover_letter)
+        db.commit()
+        db.refresh(cover_letter)
+
+        # Return the response
+        return CoverLetterManualResponse(
+            id=UUID(cover_letter.id),
+            title=cover_letter.title,
+            resume_id=UUID(cover_letter.resumeId) if cover_letter.resumeId else None,
+            job_profile_id=UUID(cover_letter.jobProfileId) if cover_letter.jobProfileId else None,
+            content=cover_letter.finalContent,
+            notes=request.notes,
+            created_at=cover_letter.createdAt,
+            updated_at=cover_letter.updatedAt,
+            created_by=UUID(cover_letter.userId) if cover_letter.userId else None
+        )
+
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        print(f"❌ Error fetching cover letter: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch cover letter: {str(e)}")
+        db.rollback()
+        print(f"❌ Error creating manual cover letter: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create cover letter: {str(e)}")

@@ -1,10 +1,11 @@
+from bson import ObjectId
 from fastapi import APIRouter, Body, UploadFile, File, status, HTTPException
 from app.features.theme_generator import create_and_save_theme
 from app.schemas.ResumeSchemas import ThemePackage, ResumeResponse  # Import actual schemas
 from app.schemas.CoverLetterSchemas import CoverLetterFull
 from typing import List, Optional
 from app.crud import crud_theme
-from app.services.designer_pdf import create_designed_pdfs
+from app.services.designer_pdf import create_designed_pdfs, get_example_theme
 from app.schemas.theme import ThemeSchema, ThemeTemplate, ThemePackageWithTemplates
 from app.schemas.theme_documents import ThemeDoc, ThemePackageDoc
 import uuid
@@ -71,45 +72,81 @@ async def read_theme_package(theme_package_id: str):
 
 @router.post("/render-pdfs")
 async def render_pdfs(
-    theme_package_id: str = Body(..., embed=True),
     resume_id: str = Body(..., embed=True),
     cover_letter_id: str = Body(..., embed=True),
+    theme_package_id: Optional[str] = Body(None, embed=True),
+    use_example_theme: bool = Body(False, embed=True),
     upload: bool = Body(True, embed=True),
 ):
-    """Generate PDFs for a stored resume + cover letter using a ThemePackage.
+    """Generate PDFs for a stored resume + cover letter using a ThemePackage or example theme.
+
+    Args:
+        resume_id: ID of the resume to render
+        cover_letter_id: ID of the cover letter to render
+        theme_package_id: Optional ID of theme package to use (ignored if use_example_theme=True)
+        use_example_theme: If True, uses the reference example theme with proper proportions
+        upload: Whether to upload PDFs to Cloudinary
 
     Returns local file paths and (optionally) uploaded Cloudinary URLs.
+    
+    Example usage with example theme:
+        {
+            "resume_id": "507f1f77bcf86cd799439011",
+            "cover_letter_id": "507f191e810c19729de860ea",
+            "use_example_theme": true,
+            "upload": true
+        }
     """
-    # 1. Fetch ThemePackage + component themes
-    package = await crud_theme.get_theme_package_by_id(theme_package_id)
-    if not package:
-        raise HTTPException(status_code=404, detail="Theme package not found")
-    resume_theme = await crud_theme.get_theme_by_id(package.resumeTemplateId if hasattr(package, 'resumeTemplateId') else package.resume_template_id)
-    cover_theme = await crud_theme.get_theme_by_id(package.coverLetterTemplateId if hasattr(package, 'coverLetterTemplateId') else package.cover_letter_template_id)
-    if not resume_theme or not cover_theme:
-        raise HTTPException(status_code=400, detail="Theme package has invalid component theme IDs")
-
-    # 2. Fetch resume & cover letter (Beanie Documents)
-    resume_doc = await ResumeResponse.find_one({"_id": resume_id})
+    # 1. Fetch resume & cover letter (Beanie Documents)
+    resume_doc = await ResumeResponse.find_one({"_id": ObjectId(resume_id)})
     if not resume_doc:
         raise HTTPException(status_code=404, detail="Resume not found")
     cover_doc = await CoverLetterFull.find_one({"_id": cover_letter_id})
     if not cover_doc:
         raise HTTPException(status_code=404, detail="Cover letter not found")
 
-    # 3. Build ThemeSchema (aggregate)
-    theme_schema = ThemeSchema(
-        name=package.name,
-        description=package.description,
-        resume_template=ThemeTemplate(template=resume_theme.template, styles=resume_theme.styles),
-        cover_letter_template=ThemeTemplate(template=cover_theme.template, styles=cover_theme.styles),
-    )
+    # 2. Determine which theme to use
+    if use_example_theme:
+        # Use the reference example theme
+        theme_schema = get_example_theme()
+    else:
+        # Use a stored theme package (original behavior)
+        if not theme_package_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="Either theme_package_id must be provided or use_example_theme must be true"
+            )
+        
+        package = await crud_theme.get_theme_package_by_id(theme_package_id)
+        if not package:
+            raise HTTPException(status_code=404, detail="Theme package not found")
+        resume_theme = await crud_theme.get_theme_by_id(
+            package.resumeTemplateId if hasattr(package, 'resumeTemplateId') else package.resume_template_id
+        )
+        cover_theme = await crud_theme.get_theme_by_id(
+            package.coverLetterTemplateId if hasattr(package, 'coverLetterTemplateId') else package.cover_letter_template_id
+        )
+        if not resume_theme or not cover_theme:
+            raise HTTPException(status_code=400, detail="Theme package has invalid component theme IDs")
 
-    # 4. Render + upload
+        # Build ThemeSchema (aggregate)
+        theme_schema = ThemeSchema(
+            name=package.name,
+            description=package.description,
+            resume_template=ThemeTemplate(template=resume_theme.template, styles=resume_theme.styles),
+            cover_letter_template=ThemeTemplate(template=cover_theme.template, styles=cover_theme.styles),
+        )
+
+    # 3. Render + upload
     result = create_designed_pdfs(
         resume_obj=resume_doc.model_dump(),
         cover_letter_obj=cover_doc.model_dump(),
         theme=theme_schema,
         upload=upload,
     )
-    return {"status": 200, "message": "PDFs generated", "data": result}
+    
+    return {
+        "status": 200, 
+        "message": "PDFs generated" + (" using example theme" if use_example_theme else ""),
+        "data": result
+    }
