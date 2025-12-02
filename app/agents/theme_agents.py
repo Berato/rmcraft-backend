@@ -1,8 +1,15 @@
 from google.genai import types
+import os
 from pydantic import BaseModel, Field
 from typing import List
 from google.adk.agents import LlmAgent
-from google.adk.agents.readonly_context import ReadonlyContext
+try:
+    from google.adk.agents.readonly_context import ReadonlyContext
+except ImportError:
+    if os.getenv('USE_MOCK_ADK', 'false').lower() == 'true':
+        from app.mocks.mock_adk import ReadonlyContext
+    else:
+        raise
 from google.adk.planners import BuiltInPlanner
 from app.schemas.ResumeSchemas import ResumeResponse
 from app.schemas.CoverLetterSchemas import CoverLetterFull

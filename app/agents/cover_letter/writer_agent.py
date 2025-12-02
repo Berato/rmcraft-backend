@@ -16,10 +16,7 @@ try:
 except ImportError:
     print("⚠️ Google ADK not available, using mock implementation")
     # Import mock implementation
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-    from mock_adk import LlmAgent, FunctionTool
+    from app.mocks.mock_adk import LlmAgent, FunctionTool
     # Mock types module
     import types
 
@@ -151,7 +148,7 @@ async def run_cover_letter_writing(
 
     # Build the prompt with analysis context
     prompt_parts = [
-        f"Write a compelling cover letter for resume {resume_id} and job at {job_description_url}.",
+        f"Write a compelling cover letter for resume {resume_id} based on the provided job description.",
         f"Analysis outline: {analysis_outline}"
     ]
 

@@ -11,6 +11,7 @@ from jinja2 import Environment, select_autoescape
 import tempfile
 import os
 import uuid
+import markdown as md_lib
 
 from app.schemas.theme import ThemeSchema
 from app.tools.pdf_generator import create_pdf
@@ -18,7 +19,9 @@ from app.tools.file_uploader import upload_to_cloudinary
 
 
 def _get_env() -> Environment:
-    return Environment(autoescape=select_autoescape(["html", "xml"]))
+    env = Environment(autoescape=select_autoescape(["html", "xml"]))
+    env.filters['markdown'] = lambda text: md_lib.markdown(text) if text else ""
+    return env
 
 
 def render_template_to_html(template_str: str, context: Dict[str, Any]) -> str:

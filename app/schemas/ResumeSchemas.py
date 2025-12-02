@@ -97,6 +97,13 @@ class ResumeBase(BaseModel):
     jobDescription: Optional[Any] = None
     jobProfileId: Optional[str] = None
     themeId: Optional[str] = None
+    
+    # Markdown fields
+    summary_markdown: Optional[str] = None
+    experience_markdown: Optional[str] = None
+    education_markdown: Optional[str] = None
+    skills_markdown: Optional[str] = None
+    projects_markdown: Optional[str] = None
 
 
 class ResumeCreate(ResumeBase):
@@ -122,6 +129,13 @@ class ResumeResponse(Document):
     jobDescription: Optional[Union[JobDescription, Dict[str, Any]]] = None
     jobProfileId: Optional[str] = None
     themeId: Optional[str] = None
+    
+    # Markdown fields
+    summary_markdown: Optional[str] = None
+    experience_markdown: Optional[str] = None
+    education_markdown: Optional[str] = None
+    skills_markdown: Optional[str] = None
+    projects_markdown: Optional[str] = None
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
     # allow from_attributes, extra fields, and population by field name (so alias "_id" works)
@@ -386,5 +400,12 @@ class ResumeAnalysisSchema(BaseModel):
     contact_info: List[ContactInfo] = Field(default_factory=list)
     summary: str = ""
     name: str = ""
+
+    # Markdown fields
+    summary_markdown: Optional[str] = None
+    experience_markdown: Optional[str] = None
+    education_markdown: Optional[str] = None
+    skills_markdown: Optional[str] = None
+    projects_markdown: Optional[str] = None
 
     model_config = pydantic.ConfigDict(from_attributes=True)

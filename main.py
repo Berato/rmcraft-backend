@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import resumes, themes, cover_letters
+from app.api.v1.endpoints import resumes, themes, cover_letters, users, job_profiles, application_packages
 from app.db.database import connect_to_mongo, close_mongo_connection
 from contextlib import asynccontextmanager
 import logging
@@ -28,6 +28,9 @@ app.add_middleware(
 app.include_router(resumes.router, prefix="/api/v1/resumes", tags=["resumes"])
 app.include_router(themes.router, prefix="/api/v1", tags=["themes"])
 app.include_router(cover_letters.router, prefix="/api/v1/cover-letters", tags=["cover-letters"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+app.include_router(job_profiles.router, prefix="/api/v1/job-profiles", tags=["job-profiles"])
+app.include_router(application_packages.router, prefix="/api/v1/application-packages", tags=["application-packages"])
 
 @app.get("/health", tags=["health"]) 
 async def health():

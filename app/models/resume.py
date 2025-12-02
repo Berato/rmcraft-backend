@@ -13,6 +13,14 @@ class Resume(Base):
     education = Column(JSON)
     skills = Column(JSON)
     projects = Column(JSON)
+    
+    # Markdown fields for new resume strategy
+    summary_markdown = Column(String, nullable=True)
+    experience_markdown = Column(String, nullable=True)
+    education_markdown = Column(String, nullable=True)
+    skills_markdown = Column(String, nullable=True)
+    projects_markdown = Column(String, nullable=True)
+
     jobDescription = Column(JSON, nullable=True)
     jobProfileId = Column(String, nullable=True)
     themeId = Column(String, nullable=True)

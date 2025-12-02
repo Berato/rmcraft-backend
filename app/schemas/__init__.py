@@ -13,6 +13,9 @@ from .CoverLetterSchemas import (
 )
 from .theme import ThemeTemplate, ThemeSchema
 from .theme_documents import ThemeDoc, ThemePackageDoc
+from .UserSchemas import User, UserCreate, UserUpdate, UserResponse
+from .JobProfileSchemas import JobProfile, JobProfileCreate, JobProfileUpdate, JobProfileResponse
+from .ApplicationPackageSchemas import ApplicationPackage, ApplicationPackageCreate, ApplicationPackageUpdate, ApplicationPackageResponse
 
 __all__ = [
 	"ResumeResponse",
@@ -34,4 +37,16 @@ __all__ = [
 	"ThemeSchema",
 	"ThemeDoc",
 	"ThemePackageDoc",
+    "User",
+    "UserCreate",
+    "UserUpdate",
+    "UserResponse",
+    "JobProfile",
+    "JobProfileCreate",
+    "JobProfileUpdate",
+    "JobProfileResponse",
+    "ApplicationPackage",
+    "ApplicationPackageCreate",
+    "ApplicationPackageUpdate",
+    "ApplicationPackageResponse",
 ]

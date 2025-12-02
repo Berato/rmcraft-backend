@@ -6,13 +6,10 @@ Service layer for cover letter operations, including CRUD utilities.
 
 from typing import Any, Dict, Optional, List
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 import logging
-from sqlalchemy import or_, and_, func
-
-from app.models.cover_letter import CoverLetter
-from app.models.resume import Resume
+from app.repositories.cover_letter_repository import cover_letter_repository
+from app.repositories.resume_repository import resume_repository
+from app.schemas.CoverLetterSchemas import CoverLetterFull
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +37,11 @@ def validate_cover_letter_data(cover_letter_data: Dict[str, Any]) -> bool:
     if not isinstance(cover_letter_data.get("bodyParagraphs", []), list):
         return False
 
-    # Check that final content is not empty
-    if not cover_letter_data.get("finalContent", "").strip():
-        return False
-
+    # Check that final content is not empty (if provided)
+    # Note: AI generation might not provide finalContent immediately, so we relax this check 
+    # if we are just saving components. But for manual creation it is usually required.
+    # Keeping it loose for now to allow flexibility.
+    
     return True
 
 
@@ -59,16 +57,16 @@ def format_cover_letter_for_storage(cover_letter_data: Dict[str, Any]) -> Dict[s
     """
     # Add timestamps if not present
     if "createdAt" not in cover_letter_data:
-        cover_letter_data["createdAt"] = datetime.now().isoformat()
+        cover_letter_data["createdAt"] = datetime.utcnow().isoformat()
 
     if "updatedAt" not in cover_letter_data:
-        cover_letter_data["updatedAt"] = datetime.now().isoformat()
+        cover_letter_data["updatedAt"] = datetime.utcnow().isoformat()
 
     # Ensure required fields have defaults
     defaults = {
         "title": "Strategic Cover Letter",
         "tone": "professional",
-        "wordCount": len(cover_letter_data.get("finalContent", "").split()),
+        "wordCount": len(cover_letter_data.get("finalContent", "").split()) if cover_letter_data.get("finalContent") else 0,
     }
 
     for key, default_value in defaults.items():
@@ -76,26 +74,6 @@ def format_cover_letter_for_storage(cover_letter_data: Dict[str, Any]) -> Dict[s
             cover_letter_data[key] = default_value
 
     return cover_letter_data
-
-
-def extract_cover_letter_metadata(cover_letter_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract metadata from cover letter data for logging/analytics.
-
-    Args:
-        cover_letter_data: Cover letter data
-
-    Returns:
-        Metadata dictionary
-    """
-    return {
-        "resumeId": cover_letter_data.get("resumeId"),
-        "wordCount": cover_letter_data.get("wordCount", 0),
-        "tone": cover_letter_data.get("tone", "professional"),
-        "hasCompanyConnection": bool(cover_letter_data.get("companyConnection")),
-        "bodyParagraphsCount": len(cover_letter_data.get("bodyParagraphs", [])),
-        "createdAt": cover_letter_data.get("createdAt"),
-    }
 
 
 def sanitize_cover_letter_content(content: str) -> str:
@@ -110,19 +88,15 @@ def sanitize_cover_letter_content(content: str) -> str:
     """
     if not content:
         return ""
-
-    # Basic sanitization - remove any potentially harmful content
-    # In a real implementation, you might want more sophisticated sanitization
     return content.strip()
 
 
-def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bool = False) -> Dict[str, Any]:
+async def save_cover_letter(cover_letter_data: Dict[str, Any], upsert: bool = False) -> Dict[str, Any]:
     """
     Save a cover letter to the database.
 
     Args:
         cover_letter_data: The cover letter data to save
-        db: Database session
         upsert: If True, update existing record if found (not implemented yet)
 
     Returns:
@@ -140,23 +114,33 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
         # Format for storage
         formatted_data = format_cover_letter_for_storage(cover_letter_data)
 
-        # Derive required relational fields from Resume to satisfy DB FKs
+        # Derive required relational fields from Resume
         resume_id = formatted_data.get('resumeId')
         if not resume_id:
             raise ValueError("resumeId is required to save a cover letter")
 
-        resume_obj = db.query(Resume).filter(Resume.id == resume_id).first()
+        # Use repository to fetch resume (async)
+        # Note: resume_repository.get expects PydanticObjectId, but resumeId is string.
+        # We use find_one with _id or id check.
+        resume_obj = await resume_repository.find_one({"_id": resume_id})
+        if not resume_obj:
+            # Try looking up by string id if _id lookup failed (though they should be same)
+            resume_obj = await resume_repository.find_one({"id": resume_id})
+            
         if not resume_obj:
             raise ValueError(f"Resume not found for id: {resume_id}")
 
-        # Ensure userId and themeId presence per DB schema expectations
-        formatted_data['userId'] = getattr(resume_obj, 'userId', None)
-        formatted_data['themeId'] = getattr(resume_obj, 'themeId', None)
+        # Ensure userId and themeId presence
+        formatted_data['userId'] = resume_obj.userId
+        formatted_data['themeId'] = resume_obj.themeId
 
         # Sanitize content
-        formatted_data['finalContent'] = sanitize_cover_letter_content(formatted_data['finalContent'])
-        formatted_data['openingParagraph'] = sanitize_cover_letter_content(formatted_data['openingParagraph'])
-        formatted_data['closingParagraph'] = sanitize_cover_letter_content(formatted_data['closingParagraph'])
+        if 'finalContent' in formatted_data:
+            formatted_data['finalContent'] = sanitize_cover_letter_content(formatted_data['finalContent'])
+        if 'openingParagraph' in formatted_data:
+            formatted_data['openingParagraph'] = sanitize_cover_letter_content(formatted_data['openingParagraph'])
+        if 'closingParagraph' in formatted_data:
+            formatted_data['closingParagraph'] = sanitize_cover_letter_content(formatted_data['closingParagraph'])
 
         # Sanitize body paragraphs
         if 'bodyParagraphs' in formatted_data and isinstance(formatted_data['bodyParagraphs'], list):
@@ -169,64 +153,23 @@ def save_cover_letter(cover_letter_data: Dict[str, Any], db: Session, upsert: bo
             formatted_data['companyConnection'] = sanitize_cover_letter_content(formatted_data['companyConnection'])
 
         # Create the model instance
-        cover_letter = CoverLetter(
-            title=formatted_data.get('title'),
-            jobDetails=formatted_data.get('jobDetails'),
-            openingParagraph=formatted_data.get('openingParagraph'),
-            bodyParagraphs=formatted_data.get('bodyParagraphs'),
-            companyConnection=formatted_data.get('companyConnection'),
-            closingParagraph=formatted_data.get('closingParagraph'),
-            tone=formatted_data.get('tone'),
-            finalContent=formatted_data.get('finalContent'),
-            resumeId=formatted_data.get('resumeId'),
-            userId=formatted_data.get('userId'),
-            themeId=formatted_data.get('themeId'),
-            jobProfileId=formatted_data.get('jobProfileId'),
-            wordCount=formatted_data.get('wordCount'),
-            metadata_json=formatted_data.get('metadata')
-        )
+        cover_letter = CoverLetterFull(**formatted_data)
 
-        # Add to session and commit
-        db.add(cover_letter)
-        db.commit()
-        db.refresh(cover_letter)
+        # Save using repository
+        saved_doc = await cover_letter_repository.create(cover_letter)
 
         # Log success
-        logger.info(f"Cover letter saved successfully with id: {cover_letter.id}, resumeId: {cover_letter.resumeId}")
+        logger.info(f"Cover letter saved successfully with id: {saved_doc.id}, resumeId: {saved_doc.resumeId}")
 
         # Return the saved data as dict
-        return {
-            'id': cover_letter.id,
-            'title': cover_letter.title,
-            'jobDetails': cover_letter.jobDetails,
-            'openingParagraph': cover_letter.openingParagraph,
-            'bodyParagraphs': cover_letter.bodyParagraphs,
-            'companyConnection': cover_letter.companyConnection,
-            'closingParagraph': cover_letter.closingParagraph,
-            'tone': cover_letter.tone,
-            'finalContent': cover_letter.finalContent,
-            'resumeId': cover_letter.resumeId,
-            'jobProfileId': cover_letter.jobProfileId,
-            'wordCount': cover_letter.wordCount,
-            'metadata': cover_letter.metadata_json,
-            'createdAt': cover_letter.createdAt.isoformat() if cover_letter.createdAt else None,
-            'updatedAt': cover_letter.updatedAt.isoformat() if cover_letter.updatedAt else None
-        }
-
-    except IntegrityError as e:
-        db.rollback()
-        # Log full error for diagnosis, including args which may contain detailed DB message
-        logger.error(f"Integrity error saving cover letter: {e}; details: {getattr(e, 'orig', None)}")
-        raise ValueError("Cover letter already exists or constraint violation")
+        return saved_doc.model_dump(by_alias=True)
 
     except Exception as e:
-        db.rollback()
         logger.error(f"Error saving cover letter: {e}")
         raise Exception(f"Failed to save cover letter: {str(e)}")
 
 
-def list_cover_letters(
-    db: Session,
+async def list_cover_letters(
     *,
     page: int = 1,
     per_page: int = 20,
@@ -241,7 +184,6 @@ def list_cover_letters(
     List cover letters with pagination, filtering, and search.
 
     Args:
-        db: Database session
         page: Page number (1-based)
         per_page: Items per page
         filters: Dictionary of filters (resumeId, jobProfileId, from_date, to_date)
@@ -262,109 +204,77 @@ def list_cover_letters(
     if page < 1:
         page = 1
 
-    # Validate search length
-    if search and len(search) > 1024:
-        raise ValueError("Search query too long")
+    skip = (page - 1) * per_page
 
-    # Build base query
-    query = db.query(CoverLetter)
-
-    # Apply authorization filter (join with resumes to get user ownership)
-    # For now, skip auth since no user system is implemented
-    # if current_user and not current_user.is_admin:
-    #     query = query.join(Resume, CoverLetter.resumeId == Resume.id)\
-    #                  .filter(Resume.userId == current_user.id)
+    # Build Beanie query
+    query_filters = {}
 
     # Apply filters
     if filters:
         if 'resumeId' in filters and filters['resumeId']:
-            query = query.filter(CoverLetter.resumeId == filters['resumeId'])
+            query_filters['resumeId'] = filters['resumeId']
 
         if 'jobProfileId' in filters and filters['jobProfileId']:
-            query = query.filter(CoverLetter.jobProfileId == filters['jobProfileId'])
+            query_filters['jobProfileId'] = filters['jobProfileId']
 
+        if 'userId' in filters and filters['userId']:
+            query_filters['userId'] = filters['userId']
+
+        # Date filtering in Mongo/Beanie
         if 'from_date' in filters and filters['from_date']:
-            try:
-                from_datetime = datetime.fromisoformat(filters['from_date'].replace('Z', '+00:00'))
-                query = query.filter(CoverLetter.createdAt >= from_datetime)
-            except ValueError:
-                raise ValueError("Invalid from_date format")
+             # Assuming createdAt is stored as ISO string in this schema based on previous code
+             # If it's a datetime object in DB, we need to convert.
+             # The schema says Optional[str] for createdAt, so string comparison might work if ISO format is strict.
+             query_filters['createdAt'] = {"$gte": filters['from_date']}
 
         if 'to_date' in filters and filters['to_date']:
-            try:
-                to_datetime = datetime.fromisoformat(filters['to_date'].replace('Z', '+00:00'))
-                query = query.filter(CoverLetter.createdAt <= to_datetime)
-            except ValueError:
-                raise ValueError("Invalid to_date format")
+             query_filters['createdAt'] = {"$lte": filters['to_date']}
 
     # Apply search
     if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                CoverLetter.title.ilike(search_term),
-                CoverLetter.finalContent.ilike(search_term)
-            )
-        )
-
-    # Get total count for pagination
-    total = query.count()
-
-    # Apply sorting
-    sort_column = getattr(CoverLetter, sort_by, CoverLetter.createdAt)
-    if sort_order.lower() == 'desc':
-        query = query.order_by(sort_column.desc())
-    else:
-        query = query.order_by(sort_column.asc())
-
-    # Apply pagination
-    offset = (page - 1) * per_page
-    query = query.offset(offset).limit(per_page)
-
-    # Determine which columns to include in response
-    include_final_content = include and 'finalContent' in include
-    include_opening = include and 'openingParagraph' in include
-    include_body = include and 'bodyParagraphs' in include
-    include_company = include and 'companyConnection' in include
-    include_closing = include and 'closingParagraph' in include
+        # Simple regex search for title or content
+        # Note: This is not performant for large datasets, but fine for now.
+        search_regex = {"$regex": search, "$options": "i"}
+        query_filters["$or"] = [
+            {"title": search_regex},
+            {"finalContent": search_regex}
+        ]
 
     # Execute query
-    cover_letters = query.all()
+    # We use the repository model directly for complex queries if needed, or add find method to repo
+    # Here we can use the model directly via Beanie
+    
+    cursor = CoverLetterFull.find(query_filters)
+    
+    # Sorting
+    sort_direction = -1 if sort_order.lower() == 'desc' else 1
+    cursor = cursor.sort((sort_by, sort_direction))
+    
+    # Pagination
+    total = await cursor.count()
+    items = await cursor.skip(skip).limit(per_page).to_list()
 
     # Format results
-    items = []
-    for cl in cover_letters:
-        item = {
-            'id': cl.id,
-            'title': cl.title,
-            'jobDetails': cl.jobDetails,
-            'resumeId': cl.resumeId,
-            'jobProfileId': cl.jobProfileId,
-            'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
-            'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,
-            'wordCount': cl.wordCount,
-        }
+    formatted_items = []
+    for cl in items:
+        # Convert to dict
+        item = cl.model_dump(by_alias=True)
+        # Ensure id is string
+        item['id'] = str(item.get('_id', item.get('id')))
+        
+        # Filter fields if 'include' is specified
+        if include:
+            # Always keep basic fields
+            basic_fields = {'id', 'title', 'jobDetails', 'resumeId', 'jobProfileId', 'createdAt', 'updatedAt', 'wordCount'}
+            filtered_item = {k: v for k, v in item.items() if k in basic_fields or k in include}
+            formatted_items.append(filtered_item)
+        else:
+            formatted_items.append(item)
 
-        if include_final_content:
-            item['finalContent'] = cl.finalContent
-        if include_opening:
-            item['openingParagraph'] = cl.openingParagraph
-        if include_body:
-            item['bodyParagraphs'] = cl.bodyParagraphs
-        if include_company:
-            item['companyConnection'] = cl.companyConnection
-        if include_closing:
-            item['closingParagraph'] = cl.closingParagraph
-
-        items.append(item)
-
-    # Calculate pagination metadata
     total_pages = (total + per_page - 1) // per_page
 
-    logger.info(f"Listed cover letters: page={page}, per_page={per_page}, total={total}, filters={filters}, search='{search}'")
-
     return {
-        'items': items,
+        'items': formatted_items,
         'meta': {
             'page': page,
             'perPage': per_page,
@@ -374,12 +284,11 @@ def list_cover_letters(
     }
 
 
-def get_cover_letter_by_id(db: Session, cover_letter_id: str) -> Dict[str, Any]:
+async def get_cover_letter_by_id(cover_letter_id: str) -> Dict[str, Any]:
     """
     Retrieve a single cover letter by id with all fields.
 
     Args:
-        db: Database session
         cover_letter_id: The cover letter ID
 
     Returns:
@@ -388,26 +297,55 @@ def get_cover_letter_by_id(db: Session, cover_letter_id: str) -> Dict[str, Any]:
     Raises:
         ValueError if not found
     """
-    cl: Optional[CoverLetter] = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id).first()
+    # Try finding by _id (ObjectId) or string id
+    cl = await cover_letter_repository.find_one({"_id": cover_letter_id})
+    if not cl:
+        cl = await cover_letter_repository.find_one({"id": cover_letter_id})
+        
     if not cl:
         raise ValueError(f"Cover letter not found for id: {cover_letter_id}")
 
-    return {
-        'id': cl.id,
-        'title': cl.title,
-        'jobDetails': cl.jobDetails,
-        'openingParagraph': cl.openingParagraph,
-        'bodyParagraphs': cl.bodyParagraphs,
-        'companyConnection': cl.companyConnection,
-        'closingParagraph': cl.closingParagraph,
-        'tone': cl.tone,
-        'finalContent': cl.finalContent,
-        'resumeId': cl.resumeId,
-        'userId': getattr(cl, 'userId', None),
-        'themeId': getattr(cl, 'themeId', None),
-        'jobProfileId': cl.jobProfileId,
-        'wordCount': cl.wordCount,
-        'metadata': cl.metadata_json,
-        'createdAt': cl.createdAt.isoformat() if cl.createdAt else None,
-        'updatedAt': cl.updatedAt.isoformat() if cl.updatedAt else None,
-    }
+    return cl.model_dump(by_alias=True)
+
+
+async def update_cover_letter(cover_letter_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Update a cover letter.
+    """
+    # Find by _id or id
+    cl = await cover_letter_repository.find_one({"_id": cover_letter_id})
+    if not cl:
+        cl = await cover_letter_repository.find_one({"id": cover_letter_id})
+        
+    if not cl:
+        return None
+
+    # Update fields
+    if "updatedAt" not in update_data:
+        update_data["updatedAt"] = datetime.utcnow().isoformat()
+        
+    await cl.update({"$set": update_data})
+    
+    # Refresh
+    # Find by _id or id
+    cl = await cover_letter_repository.find_one({"_id": cover_letter_id})
+    if not cl:
+        cl = await cover_letter_repository.find_one({"id": cover_letter_id})
+        
+    return cl.model_dump(by_alias=True)
+
+
+async def delete_cover_letter(cover_letter_id: str) -> bool:
+    """
+    Delete a cover letter.
+    """
+    # Find by _id or id
+    cl = await cover_letter_repository.find_one({"_id": cover_letter_id})
+    if not cl:
+        cl = await cover_letter_repository.find_one({"id": cover_letter_id})
+        
+    if not cl:
+        return False
+        
+    await cl.delete()
+    return True

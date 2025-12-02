@@ -16,10 +16,7 @@ try:
 except ImportError:
     print("⚠️ Google ADK not available, using mock implementation")
     # Import mock implementation
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-    from mock_adk import LlmAgent, FunctionTool
+    from app.mocks.mock_adk import LlmAgent, FunctionTool
     # Mock types module
     import types
 

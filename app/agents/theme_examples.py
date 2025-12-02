@@ -452,3 +452,170 @@ def get_cover_letter_example_for_agent() -> dict:
         "styles": EXAMPLE_COVER_LETTER_STYLES,
         "explanation": "This cover letter template demonstrates proper header grouping with opening paragraph, natural paragraph flow, and appropriate typography for long-form content."
     }
+
+# Example Markdown Resume Template
+EXAMPLE_MARKDOWN_RESUME_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Resume</title>
+</head>
+<body>
+    <div class="header">
+        <h1 class="name">{{ resume.personalInfo.firstName }} {{ resume.personalInfo.lastName }}</h1>
+        <div class="contact-info">
+            <span class="contact-item">{{ resume.personalInfo.email }}</span>
+            <span class="contact-item">{{ resume.personalInfo.phone }}</span>
+            {% if resume.personalInfo.linkedin %}
+            <span class="contact-item">{{ resume.personalInfo.linkedin }}</span>
+            {% endif %}
+            {% if resume.personalInfo.location %}
+            <span class="contact-item">{{ resume.personalInfo.location }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if resume.summary_markdown %}
+    <div class="section summary-section">
+        <h2 class="section-title">Professional Summary</h2>
+        <div class="markdown-content">
+            {{ resume.summary_markdown | markdown }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if resume.experience_markdown %}
+    <div class="section experience-section">
+        <h2 class="section-title">Experience</h2>
+        <div class="markdown-content">
+            {{ resume.experience_markdown | markdown }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if resume.projects_markdown %}
+    <div class="section projects-section">
+        <h2 class="section-title">Projects</h2>
+        <div class="markdown-content">
+            {{ resume.projects_markdown | markdown }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if resume.skills_markdown %}
+    <div class="section skills-section">
+        <h2 class="section-title">Skills</h2>
+        <div class="markdown-content">
+            {{ resume.skills_markdown | markdown }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if resume.education_markdown %}
+    <div class="section education-section">
+        <h2 class="section-title">Education</h2>
+        <div class="markdown-content">
+            {{ resume.education_markdown | markdown }}
+        </div>
+    </div>
+    {% endif %}
+</body>
+</html>"""
+
+EXAMPLE_MARKDOWN_RESUME_STYLES = """@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+@page {
+    size: Letter;
+    margin: 0.5in;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #2c3e50;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 0.3in;
+    border-bottom: 2pt solid #2c3e50;
+    padding-bottom: 0.2in;
+}
+
+.name {
+    font-size: 24pt;
+    font-weight: 700;
+    margin-bottom: 0.1in;
+}
+
+.contact-info {
+    font-size: 9pt;
+    color: #555;
+}
+
+.contact-item {
+    margin: 0 0.1in;
+}
+
+.section {
+    margin-bottom: 0.25in;
+}
+
+.section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    border-bottom: 1pt solid #eee;
+    padding-bottom: 0.05in;
+    margin-bottom: 0.15in;
+    color: #2c3e50;
+}
+
+/* Markdown Content Styling */
+.markdown-content p {
+    margin-bottom: 0.1in;
+    text-align: justify;
+}
+
+.markdown-content ul {
+    margin-left: 0.2in;
+    margin-bottom: 0.1in;
+}
+
+.markdown-content li {
+    margin-bottom: 0.05in;
+}
+
+.markdown-content strong {
+    font-weight: 700;
+    color: #000;
+}
+
+.markdown-content em {
+    font-style: italic;
+    color: #555;
+}
+
+.markdown-content h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    margin-top: 0.15in;
+    margin-bottom: 0.05in;
+}
+"""
+
+def get_markdown_resume_example_for_agent() -> dict:
+    """Returns the example markdown resume theme formatted for agent instruction."""
+    return {
+        "template": EXAMPLE_MARKDOWN_RESUME_TEMPLATE,
+        "styles": EXAMPLE_MARKDOWN_RESUME_STYLES,
+        "explanation": "This theme uses Markdown content for sections, allowing for flexible formatting while maintaining a clean, professional layout."
+    }
+

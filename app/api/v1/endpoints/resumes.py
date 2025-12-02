@@ -1,19 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.orm import Session
 from typing import List, Any, Dict, Optional, Union
 from pydantic import BaseModel, Field
 import json
-from app.crud import crud_resume
+# from app.crud import crud_resume <-- Removed
 from app.schemas.ResumeSchemas import ResumeResponse, ResumeListResponse, ResumeSingleResponse
 from app.workflows.resume.simple_resume_parser import parse_resume_simple
-from app.db.session import get_db
+# from app.db.session import get_db <-- Removed
 from app.services.pdf_service import extract_text_from_pdf
-from app.services.resume_normalization import (
-    ensure_list_of_dicts,
-    normalize_skills,
-    normalize_projects,
-    normalize_personal_info,
-)
+from app.services import resume_service
 from app.agents.resume.strategic.strategic_resume_agent import strategic_resume_agent
 from app.agents.resume.strategic.strategy_advisor import strategy_advisor_isolated
 import asyncio
@@ -36,18 +30,27 @@ class StrategicResumeRequest(BaseModel):
 
 # normalization helpers moved to app.services.resume_normalization
 @router.get("/", response_model=ResumeListResponse)
-async def read_resumes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+async def read_resumes(skip: int = 0, limit: int = 100, user_id: Optional[str] = None):
     """
     Retrieve a list of resumes with pagination.
     
     Args:
         skip: Number of resumes to skip for pagination.
         limit: Maximum number of resumes to return.
-        db: Database session dependency.
+        user_id: Optional user ID to filter by.
     """
     try:
-        # Ensure Beanie is initialized
-        resumes = await ResumeResponse.find_many().limit(limit).skip(skip).to_list()
+        # Use service to get resumes
+        resumes_data = await resume_service.get_resumes(skip=skip, limit=limit, user_id=user_id)
+        
+        # Convert dicts back to ResumeResponse objects for Pydantic validation if needed, 
+        # or just pass dicts if response model allows (ResumeListResponse expects List[ResumeResponse])
+        # ResumeResponse is a Beanie Document, so it can accept dicts in constructor or we can just return the dicts 
+        # if Pydantic ConfigDict(from_attributes=True) is set (which it is).
+        
+        # However, ResumeListResponse.data is List[ResumeResponse]. 
+        # Beanie documents are Pydantic models.
+        resumes = [ResumeResponse(**r) for r in resumes_data]
 
         return {"status": 200, "message": "Resumes returned successfully", "data": resumes}
     except Exception as e:
@@ -55,13 +58,57 @@ async def read_resumes(skip: int = 0, limit: int = 100, db: Session = Depends(ge
 
 
 @router.get("/{resume_id}", response_model=ResumeSingleResponse)
-async def read_resume(resume_id: str, db: Session = Depends(get_db)):
-    resume = await ResumeResponse.find_one({"_id": resume_id})
+async def read_resume(resume_id: str): # db: Session = Depends(get_db) <-- Removed
+    resume = await resume_service.get_resume_obj(resume_id)
 
     if not resume:
         return {"status": 404, "message": "Resume not found", "data": None}
 
     return {"status": 200, "message": "Resume returned successfully", "data": resume}
+
+
+@router.post("/", response_model=ResumeSingleResponse)
+async def create_resume_manual(resume_in: Dict[str, Any]):
+    """
+    Create a resume manually.
+    """
+    try:
+        resume = await resume_service.create_resume(resume_in)
+        return {"status": 201, "message": "Resume created successfully", "data": resume}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create resume: {str(e)}")
+
+
+@router.put("/{resume_id}", response_model=ResumeSingleResponse)
+async def update_resume(resume_id: str, resume_in: Dict[str, Any]):
+    """
+    Update a resume.
+    """
+    try:
+        resume = await resume_service.update_resume(resume_id, resume_in)
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        return {"status": 200, "message": "Resume updated successfully", "data": resume}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update resume: {str(e)}")
+
+
+@router.delete("/{resume_id}")
+async def delete_resume(resume_id: str):
+    """
+    Delete a resume.
+    """
+    try:
+        success = await resume_service.delete_resume(resume_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        return {"status": 200, "message": "Resume deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete resume: {str(e)}")
 
 
 @router.post("/strategic-analysis", response_model=StrategicResumeResponse)
@@ -81,7 +128,7 @@ async def strategic_resume_analysis(
     """
     try:
         # Validate that the resume exists
-        resume = await ResumeResponse.find_one({"_id": resume_id})
+        resume = await resume_service.get_resume_obj(resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         
@@ -130,7 +177,7 @@ async def test_strategy_advisor(
     """
     try:
         # Validate that the resume exists
-        resume = await ResumeResponse.find_one({"_id": resume_id})
+        resume = await resume_service.get_resume_obj(resume_id)
         if not resume:
             raise HTTPException(status_code=404, detail="Resume not found")
         

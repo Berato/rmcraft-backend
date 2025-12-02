@@ -14,10 +14,7 @@ try:
 except ImportError:
     print("⚠️ Google ADK not available, using mock implementation")
     # Import mock implementation
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-    from mock_adk import (
+    from app.mocks.mock_adk import (
         ParallelAgent, SequentialAgent, LlmAgent, Runner,
         InMemorySessionService, FunctionTool, google_search, agent_tool,
         BuiltInPlanner
@@ -46,12 +43,21 @@ from pyparsing import Any
 import json
 import asyncio
 from app.agents import resume
-from app.services.resume_service import get_resume_pydantic
 from app.tools.get_url_contents import get_url_contents
 from app.schemas.ResumeSchemas import EducationAgentOutPutSchema, ExperienceAgentOutPutSchema, ResumeResponse, SkillsAgentOutPutSchema, ProjectsAgentOutPutSchema, ContactInfoAgentOutPutSchema, SummaryAgentOutPutSchema
 from app.agents.resume.strategic.schema_assembler import create_resume_from_fragments
 import uuid
-from google.adk.models.lite_llm import LiteLlm
+try:
+    from google.adk.models.lite_llm import LiteLlm
+except ImportError:
+    # If real ADK is not available, define a mock LiteLlm or just pass
+    # This will be handled by the mock setup above if USE_MOCK_ADK is true
+    if os.getenv('USE_MOCK_ADK', 'false').lower() == 'true':
+        class LiteLlm:
+            def __init__(self, model_name):
+                self.model_name = model_name
+    else:
+        raise
 
 OPENAI_MODEL = "openai/gpt-5-mini"
 gpt5_model = LiteLlm("openai/gpt-5-mini")  # Using Gemini 2.0 Flash for better performance

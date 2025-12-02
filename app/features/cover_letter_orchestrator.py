@@ -9,18 +9,18 @@ try:
     # Try to use real Google ADK by default, fall back to mock for testing
     if os.getenv('USE_MOCK_ADK', 'false').lower() == 'true':
         raise ImportError("Mock ADK forced for testing")
-    from google.adk.agents import SequentialAgent
+    from google.adk.agents import SequentialAgent, LlmAgent, FunctionTool
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
     print("✅ Using real Google ADK")
 except ImportError:
     print("⚠️ Google ADK not available, using mock implementation")
-    # Import mock implementation
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    from mock_adk import SequentialAgent, Runner, InMemorySessionService
+    from app.mocks.mock_adk import (
+        ParallelAgent, SequentialAgent, LlmAgent, Runner,
+        InMemorySessionService, FunctionTool, google_search, agent_tool,
+        BuiltInPlanner
+    )
     # Mock types module
     import types
     types.GenerateContentConfig = type('GenerateContentConfig', (), {
@@ -42,13 +42,11 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from app.schemas.CoverLetterSchemas import CoverLetterFull
-from app.services.resume_service import get_resume_pydantic
+from app.services.resume_service import get_resume_obj
 from app.tools.get_url_contents import get_url_contents
 from app.agents.cover_letter.analyst_agent import create_cover_letter_analyst_agent, run_cover_letter_analysis
 from app.agents.cover_letter.writer_agent import create_cover_letter_writer_agent, run_cover_letter_writing
 from app.agents.cover_letter.editor_agent import create_cover_letter_editor_agent, run_cover_letter_editing
-from app.db.session import SessionLocal
-from app.services.cover_letter_service import save_cover_letter
 from app.schemas.ResumeSchemas import ResumeResponse
 from bson.objectid import ObjectId
 
@@ -133,7 +131,8 @@ def process_resume_for_chroma(resume_json: dict) -> tuple[list[str], list[dict],
 
 async def cover_letter_orchestrator(
     resume_id: str,
-    job_description_url: str,
+    job_description_url: Optional[str] = None,
+    job_description_text: Optional[str] = None,
     optional_prompt: Optional[str] = None,
     save_to_db: bool = True
 ) -> Dict[str, Any]:
@@ -143,6 +142,7 @@ async def cover_letter_orchestrator(
     Args:
         resume_id: ID of the resume to use
         job_description_url: URL of the job description to analyze
+        job_description_text: Text content of the job description
         optional_prompt: Optional user prompt for tone or focus
 
     Returns:
@@ -153,7 +153,7 @@ async def cover_letter_orchestrator(
 
     # Step 1: Validate inputs and fetch resume
     print("📄 Step 1: Fetching resume data...")
-    resume = await ResumeResponse.find_one({"_id": ObjectId(resume_id)})
+    resume = await get_resume_obj(resume_id)
 
     if not resume:
         raise ValueError(f"Resume not found for id: {resume_id}")
@@ -170,11 +170,24 @@ async def cover_letter_orchestrator(
 
     # Step 3: Fetch and store job description
     print("🌐 Step 3: Fetching job description...")
-    job_description_chunks = await get_url_contents(job_description_url)
+    
+    if job_description_text:
+        # Use provided text
+        # Split by paragraphs to create chunks
+        job_description_chunks = [p.strip() for p in job_description_text.split('\n\n') if p.strip()]
+        if not job_description_chunks:
+            job_description_chunks = [job_description_text]
+        source_meta = "provided_text"
+    elif job_description_url:
+        job_description_chunks = await get_url_contents(job_description_url)
+        source_meta = job_description_url
+    else:
+        raise ValueError("No job description provided")
+
     jd_collection = chroma_client.get_or_create_collection(name=f"cover_letter_jd_{str(uuid.uuid4())[:8]}")
     jd_collection.add(
         documents=job_description_chunks,
-        metadatas=[{"source": job_description_url}] * len(job_description_chunks),
+        metadatas=[{"source": source_meta}] * len(job_description_chunks),
         ids=[str(uuid.uuid4()) for _ in job_description_chunks],
     )
 
@@ -209,7 +222,7 @@ async def cover_letter_orchestrator(
     print("🔍 Step 5: Running cover letter analysis...")
     analysis_session_id = f"analysis_{base_session_id}"
     analysis_result = await run_cover_letter_analysis(
-        analyst_agent, resume_id, job_description_url,
+        analyst_agent, resume_id, job_description_url or "provided text",
         session_service, analysis_session_id
     )
 
@@ -220,7 +233,7 @@ async def cover_letter_orchestrator(
     print("✍️ Step 6: Writing cover letter content...")
     writing_session_id = f"writing_{base_session_id}"
     writing_result = await run_cover_letter_writing(
-        writer_agent, analysis_result, resume_id, job_description_url,
+        writer_agent, analysis_result, resume_id, job_description_url or "provided text",
         optional_prompt, session_service, writing_session_id
     )
 
@@ -245,30 +258,30 @@ async def cover_letter_orchestrator(
     # Build response
     response_data = editing_result
 
+    # Map incoming snake_case or mixed keys to the camelCase shape required by CoverLetterFull
+    mapped = {
+        "id": response_data.get("id") or str(uuid.uuid4()),
+        "title": response_data.get("title") or response_data.get("title_text") or "Strategic Cover Letter",
+        "jobDetails": response_data.get("jobDetails") or response_data.get("job_details") or {},
+        "openingParagraph": response_data.get("openingParagraph") or response_data.get("opening_paragraph") or "",
+        "bodyParagraphs": response_data.get("bodyParagraphs") or response_data.get("body_paragraphs") or [],
+        "companyConnection": response_data.get("companyConnection") or response_data.get("company_connection"),
+        "closingParagraph": response_data.get("closingParagraph") or response_data.get("closing_paragraph") or "",
+        "tone": response_data.get("tone") or response_data.get("tone_text") or "professional",
+        "resumeId": response_data.get("resumeId") or response_data.get("resume_id") or resume_id,
+        "userId": response_data.get("userId") or response_data.get("user_id"),
+        "themeId": response_data.get("themeId") or response_data.get("theme_id"),
+        "jobProfileId": response_data.get("jobProfileId") or response_data.get("job_profile_id"),
+        "wordCount": response_data.get("wordCount") or response_data.get("word_count") or 0,
+        "metadata": response_data.get("metadata") or response_data.get("meta"),
+        "createdAt": response_data.get("createdAt") or response_data.get("created_at") or datetime.utcnow().isoformat(),
+        "updatedAt": response_data.get("updatedAt") or response_data.get("updated_at") or datetime.utcnow().isoformat(),
+    }
+
     # Persist to database if requested
     if save_to_db:
         print("💾 Step 9: Saving cover letter to database...")
         try:
-            # Map incoming snake_case or mixed keys to the camelCase shape required by CoverLetterFull
-            mapped = {
-                "id": response_data.get("id") or str(uuid.uuid4()),
-                "title": response_data.get("title") or response_data.get("title_text") or "Strategic Cover Letter",
-                "jobDetails": response_data.get("jobDetails") or response_data.get("job_details") or {},
-                "openingParagraph": response_data.get("openingParagraph") or response_data.get("opening_paragraph") or "",
-                "bodyParagraphs": response_data.get("bodyParagraphs") or response_data.get("body_paragraphs") or [],
-                "companyConnection": response_data.get("companyConnection") or response_data.get("company_connection"),
-                "closingParagraph": response_data.get("closingParagraph") or response_data.get("closing_paragraph") or "",
-                "tone": response_data.get("tone") or response_data.get("tone_text") or "professional",
-                "resumeId": response_data.get("resumeId") or response_data.get("resume_id") or resume_id,
-                "userId": response_data.get("userId") or response_data.get("user_id"),
-                "themeId": response_data.get("themeId") or response_data.get("theme_id"),
-                "jobProfileId": response_data.get("jobProfileId") or response_data.get("job_profile_id"),
-                "wordCount": response_data.get("wordCount") or response_data.get("word_count") or 0,
-                "metadata": response_data.get("metadata") or response_data.get("meta"),
-                "createdAt": response_data.get("createdAt") or response_data.get("created_at") or datetime.utcnow().isoformat(),
-                "updatedAt": response_data.get("updatedAt") or response_data.get("updated_at") or datetime.utcnow().isoformat(),
-            }
-
             doc = CoverLetterFull(**mapped)
             saved_cover_letter = await doc.insert()
             mapped['coverLetterId'] = saved_cover_letter.id

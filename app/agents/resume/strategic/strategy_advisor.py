@@ -32,11 +32,10 @@ try:
 	REAL_ADK = True
 except ImportError:  # pragma: no cover - enable running without Google ADK
 	REAL_ADK = False
-	import sys, os
-	sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-	from mock_adk import (
-		LlmAgent, Runner, InMemorySessionService,
-	)
+	from app.mocks.mock_adk import (
+        SequentialAgent, LlmAgent, Runner,
+        InMemorySessionService, FunctionTool, google_search, agent_tool, LiteLlm
+    )
 	# Minimal mock types compatible with our usage
 	import types as _types
 	types = _types
@@ -52,7 +51,7 @@ except ImportError:  # pragma: no cover - enable running without Google ADK
 	types.Part = type('Part', (), {
 		'__init__': lambda self, text=None, inline_data=None: None
 	})
-	from google.adk.models.lite_llm import LiteLlm  # provided by mock in tests
+	# from google.adk.models.lite_llm import LiteLlm  # provided by mock in tests
 
 from app.models import resume
 from app.tools.get_url_contents import get_url_contents

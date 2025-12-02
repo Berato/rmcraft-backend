@@ -7,14 +7,14 @@ Endpoints for strategic cover letter generation.
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from sqlalchemy.orm import Session
+# from sqlalchemy.orm import Session  <-- Removed
 from app.features.cover_letter_orchestrator import cover_letter_orchestrator
-from app.services.cover_letter_service import list_cover_letters, get_cover_letter_by_id
-from app.db.session import get_db
+from app.services.cover_letter_service import list_cover_letters, get_cover_letter_by_id, save_cover_letter
+# from app.db.session import get_db <-- Removed
 from beanie import Document
 from datetime import datetime
 from uuid import UUID
-from app.models.cover_letter import CoverLetter
+# from app.models.cover_letter import CoverLetter <-- Removed
 from app.schemas.CoverLetterSchemas import (
     StrategicCoverLetterRequest,
     JobProfileDetails,
@@ -50,10 +50,14 @@ async def create_strategic_cover_letter(request: StrategicCoverLetterRequest):
         print(f"   Job URL: {request.jobDescriptionUrl}")
         print(f"   Custom prompt: {request.prompt}")
 
+        if not request.jobDescriptionUrl and not request.jobDescriptionText:
+             raise HTTPException(status_code=400, detail="Either jobDescriptionUrl or jobDescriptionText must be provided")
+
         # Generate the cover letter using the orchestrator
         cover_letter_data = await cover_letter_orchestrator(
             resume_id=request.resumeId,
             job_description_url=request.jobDescriptionUrl,
+            job_description_text=request.jobDescriptionText,
             optional_prompt=request.prompt,
             save_to_db=request.saveToDb
         )
@@ -125,24 +129,13 @@ async def list_cover_letters_endpoint(
     include: Optional[str] = None,
     from_date: Optional[str] = None,  # Changed from 'from' to 'from_date' to avoid Python keyword
     to: Optional[str] = None,
-    db: Session = Depends(get_db)
+    userId: Optional[str] = None,
+    # db: Session = Depends(get_db) <-- Removed
 ):
     """
     List cover letters with pagination, filtering, and search.
 
     This endpoint provides a paginated, filterable list of cover letters.
-
-    Query Parameters:
-    - **page**: Page number (default: 1)
-    - **perPage**: Items per page (default: 20, max: 100)
-    - **resumeId**: Filter by resume ID
-    - **jobProfileId**: Filter by job profile ID
-    - **from_date**: Filter by created date >= from_date (ISO format)
-    - **to**: Filter by created date <= to (ISO format)
-    - **search**: Free text search in title and content
-    - **sortBy**: Sort field (createdAt, wordCount, atsScore)
-    - **sortOrder**: Sort order (asc, desc)
-    - **include**: Comma-separated list of fields to include (e.g., "finalContent")
     """
     try:
         # Parse include parameter
@@ -160,10 +153,12 @@ async def list_cover_letters_endpoint(
             filters['from_date'] = from_date
         if to:
             filters['to_date'] = to
+        if userId:
+            filters['userId'] = userId
 
-        # Call service
-        result = list_cover_letters(
-            db=db,
+        # Call service (awaited)
+        result = await list_cover_letters(
+            # db=db, <-- Removed
             page=page,
             per_page=perPage,
             filters=filters if filters else None,
@@ -174,6 +169,7 @@ async def list_cover_letters_endpoint(
         )
 
         # Format response
+        # Note: result['items'] are already dicts from the service
         items = [CoverLetterSummary(**item) for item in result['items']]
         meta = CoverLetterListMeta(**result['meta'])
         data = CoverLetterListData(items=items, meta=meta)
@@ -196,8 +192,106 @@ async def list_cover_letters_endpoint(
         )
 
 
+@router.get("/{cover_letter_id}", response_model=CoverLetterAPIResponse)
+async def read_cover_letter(cover_letter_id: str):
+    """
+    Retrieve a single cover letter by ID.
+    """
+    try:
+        cl = await get_cover_letter_by_id(cover_letter_id)
+        
+        # Convert to response model
+        # We need to map the dict to StrategicCoverLetterResponse structure
+        # Or we can just return the dict if the response model allows it
+        # CoverLetterAPIResponse expects data: StrategicCoverLetterResponse
+        
+        # We need to reconstruct the response object
+        job_details = JobProfileDetails(**cl.get("jobDetails", {}))
+        response_data = StrategicCoverLetterResponse(
+            title=cl.get("title", "Cover Letter"),
+            jobDetails=job_details,
+            openingParagraph=cl.get("openingParagraph", ""),
+            bodyParagraphs=cl.get("bodyParagraphs", []),
+            companyConnection=cl.get("companyConnection"),
+            closingParagraph=cl.get("closingParagraph", ""),
+            tone=cl.get("tone", "professional"),
+            resumeId=cl.get("resumeId"),
+            jobProfileId=cl.get("jobProfileId"),
+            createdAt=cl.get("createdAt", ""),
+            updatedAt=cl.get("updatedAt", ""),
+            wordCount=cl.get("wordCount", 0),
+            coverLetterId=cl.get("id"), # Use id as coverLetterId
+            persistenceError=None
+        )
+
+        return CoverLetterAPIResponse(
+            status=200,
+            message="Cover letter retrieved successfully",
+            data=response_data
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get cover letter: {str(e)}")
+
+
+@router.put("/{cover_letter_id}", response_model=CoverLetterAPIResponse)
+async def update_cover_letter_endpoint(cover_letter_id: str, cover_letter_in: Dict[str, Any]):
+    """
+    Update a cover letter.
+    """
+    try:
+        from app.services.cover_letter_service import update_cover_letter
+        cl = await update_cover_letter(cover_letter_id, cover_letter_in)
+        
+        if not cl:
+             raise HTTPException(status_code=404, detail="Cover letter not found")
+
+        # Reconstruct response
+        job_details = JobProfileDetails(**cl.get("jobDetails", {}))
+        response_data = StrategicCoverLetterResponse(
+            title=cl.get("title", "Cover Letter"),
+            jobDetails=job_details,
+            openingParagraph=cl.get("openingParagraph", ""),
+            bodyParagraphs=cl.get("bodyParagraphs", []),
+            companyConnection=cl.get("companyConnection"),
+            closingParagraph=cl.get("closingParagraph", ""),
+            tone=cl.get("tone", "professional"),
+            resumeId=cl.get("resumeId"),
+            jobProfileId=cl.get("jobProfileId"),
+            createdAt=cl.get("createdAt", ""),
+            updatedAt=cl.get("updatedAt", ""),
+            wordCount=cl.get("wordCount", 0),
+            coverLetterId=cl.get("id"),
+            persistenceError=None
+        )
+
+        return CoverLetterAPIResponse(
+            status=200,
+            message="Cover letter updated successfully",
+            data=response_data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update cover letter: {str(e)}")
+
+
+@router.delete("/{cover_letter_id}")
+async def delete_cover_letter_endpoint(cover_letter_id: str):
+    """
+    Delete a cover letter.
+    """
+    try:
+        from app.services.cover_letter_service import delete_cover_letter
+        success = await delete_cover_letter(cover_letter_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Cover letter not found")
+        return {"status": 200, "message": "Cover letter deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete cover letter: {str(e)}")
+
+
 @router.post("/manual-create", response_model=CoverLetterManualResponse)
-async def create_manual_cover_letter(request: CoverLetterManualCreate, db: Session = Depends(get_db)):
+async def create_manual_cover_letter(request: CoverLetterManualCreate): # db: Session = Depends(get_db) <-- Removed
     """
     Create a cover letter manually without using AI agents.
 
@@ -209,43 +303,39 @@ async def create_manual_cover_letter(request: CoverLetterManualCreate, db: Sessi
         if len(request.raw_text) > 50000:  # 50KB limit
             raise HTTPException(status_code=422, detail="Cover letter text exceeds maximum length (50KB)")
 
-        # Create the cover letter record
-        cover_letter = CoverLetter(
-            title=request.title,
-            finalContent=request.raw_text,  # Store the manual text here
-            resumeId=str(request.resume_id) if request.resume_id else None,
-            jobProfileId=str(request.job_profile_id) if request.job_profile_id else None,
-            userId=str(request.user_id) if request.user_id else None,
-            # Set defaults for other fields
-            tone="manual",
-            wordCount=len(request.raw_text.split()),  # Approximate word count
-            metadata_json={"notes": request.notes} if request.notes else None,
-            createdAt=datetime.utcnow(),
-            updatedAt=datetime.utcnow()
-        )
-
-        # Save to database
-        db.add(cover_letter)
-        db.commit()
-        db.refresh(cover_letter)
+        # Prepare data for service
+        cover_letter_data = {
+            "title": request.title,
+            "finalContent": request.raw_text,
+            "resumeId": str(request.resume_id) if request.resume_id else None,
+            "jobProfileId": str(request.job_profile_id) if request.job_profile_id else None,
+            "userId": str(request.user_id) if request.user_id else None,
+            "tone": "manual",
+            "wordCount": len(request.raw_text.split()),
+            "metadata": {"notes": request.notes} if request.notes else None,
+            "openingParagraph": "", # Required by validator/schema but not manual input
+            "bodyParagraphs": [],   # Required by validator/schema
+            "closingParagraph": ""  # Required by validator/schema
+        }
+        
+        # Save using service (awaited)
+        saved_data = await save_cover_letter(cover_letter_data)
 
         # Return the response
         return CoverLetterManualResponse(
-            id=UUID(cover_letter.id),
-            title=cover_letter.title,
-            resume_id=UUID(cover_letter.resumeId) if cover_letter.resumeId else None,
-            job_profile_id=UUID(cover_letter.jobProfileId) if cover_letter.jobProfileId else None,
-            content=cover_letter.finalContent,
-            notes=request.notes,
-            created_at=cover_letter.createdAt,
-            updated_at=cover_letter.updatedAt,
-            created_by=UUID(cover_letter.userId) if cover_letter.userId else None
+            id=UUID(str(saved_data['id'])), # Ensure UUID format for response model
+            title=saved_data['title'],
+            resume_id=UUID(saved_data['resumeId']) if saved_data.get('resumeId') else None,
+            job_profile_id=UUID(saved_data['jobProfileId']) if saved_data.get('jobProfileId') else None,
+            content=saved_data.get('finalContent', ''),
+            notes=saved_data.get('metadata', {}).get('notes') if saved_data.get('metadata') else None,
+            created_at=datetime.fromisoformat(saved_data['createdAt']) if isinstance(saved_data['createdAt'], str) else saved_data['createdAt'],
+            updated_at=datetime.fromisoformat(saved_data['updatedAt']) if isinstance(saved_data['updatedAt'], str) else saved_data['updatedAt'],
+            created_by=UUID(saved_data['userId']) if saved_data.get('userId') else None
         )
 
     except ValueError as e:
-        db.rollback()
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        db.rollback()
         print(f"❌ Error creating manual cover letter: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create cover letter: {str(e)}")

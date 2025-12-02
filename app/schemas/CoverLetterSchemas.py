@@ -7,7 +7,8 @@ from bson import ObjectId
 class StrategicCoverLetterRequest(BaseModel):
     """Request model for strategic cover letter generation"""
     resumeId: str
-    jobDescriptionUrl: str
+    jobDescriptionUrl: Optional[str] = None
+    jobDescriptionText: Optional[str] = None
     prompt: Optional[str] = None
     saveToDb: bool = True
 
@@ -59,6 +60,7 @@ class CoverLetterFull(Document):
     companyConnection: Optional[str] = None
     closingParagraph: Optional[str] = ""
     tone: Optional[str] = "professional"
+    finalContent: Optional[str] = ""
     resumeId: Optional[str] = None
     userId: Optional[str] = None
     themeId: Optional[str] = None

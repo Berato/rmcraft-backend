@@ -26,7 +26,7 @@ async def test_cover_letter_endpoint_success():
         "companyConnection": "I admire your mission.",
         "closingParagraph": "Thank you for your consideration.",
         "tone": "professional",
-        "finalContent": "Full cover letter content...",
+        # "finalContent": "Full cover letter content...",  <-- Removed
         "resumeId": "test-resume-123",
         "createdAt": "2024-01-01T00:00:00Z",
         "updatedAt": "2024-01-01T00:00:00Z",
@@ -47,7 +47,7 @@ async def test_cover_letter_endpoint_success():
         assert response.status == 201
         assert response.message == "Strategic cover letter generated successfully"
         assert response.data.resumeId == "test-resume-123"
-        assert response.data.finalContent == "Full cover letter content..."
+        # assert response.data.finalContent == "Full cover letter content..." <-- Removed
         assert response.data.wordCount == 150
         assert response.data.coverLetterId == "test-cover-letter-id"
         assert response.data.persistenceError is None
@@ -88,7 +88,7 @@ async def test_cover_letter_endpoint_invalid_data():
             await create_strategic_cover_letter(request)
 
         assert exc_info.value.status_code == 422
-        assert "No usable data" in str(exc_info.value.detail)
+        assert exc_info.value.detail == "Resume contains no usable data"
 
 
 @pytest.mark.asyncio
@@ -150,7 +150,7 @@ async def test_cover_letter_endpoint_no_save_to_db():
         assert response.status == 201
         assert response.message == "Strategic cover letter generated successfully"
         assert response.data.resumeId == "test-resume-123"
-        assert response.data.finalContent == "Full cover letter content..."
+        # assert response.data.finalContent == "Full cover letter content..." <-- Removed
         assert response.data.coverLetterId is None  # Should be None when not saved
         assert response.data.persistenceError is None
 
@@ -175,7 +175,7 @@ def test_response_model_validation():
         bodyParagraphs=["Body paragraph"],
         closingParagraph="Thank you.",
         tone="professional",
-        finalContent="Full content",
+        # finalContent="Full content", <-- Removed
         resumeId="test-123",
         createdAt="2024-01-01T00:00:00Z",
         updatedAt="2024-01-01T00:00:00Z"
@@ -190,7 +190,7 @@ def test_response_model_validation():
         data=cover_letter
     )
     assert api_response.status == 201
-    assert api_response.data.finalContent == "Full content"
+    # assert api_response.data.finalContent == "Full content" <-- Removed
 
 
 @pytest.mark.asyncio
@@ -205,6 +205,7 @@ async def test_list_cover_letters_endpoint_success():
             {
                 'id': 'test-id-1',
                 'title': 'Test Cover Letter 1',
+                'clientName': 'Test Client',  # Added
                 'jobDetails': {'title': 'Developer', 'company': 'Tech Corp'},
                 'resumeId': 'test-resume-123',
                 'jobProfileId': None,

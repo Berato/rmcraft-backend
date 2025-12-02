@@ -29,6 +29,18 @@ class MockBuiltInPlanner(MockPlanner):
         super().__init__(thinking_config)
 
 
+class LiteLlm:
+    def __init__(self, model_name: str = None, model: str = None):
+        self.model_name = model_name or model
+
+class ReadonlyContext:
+    def __init__(self, context: dict):
+        self.context = context
+
+    def get(self, key: str, default=None):
+        return self.context.get(key, default)
+
+
 class MockContent:
     def __init__(self, role: str, parts: List):
         self.role = role
@@ -60,11 +72,12 @@ class MockSessionService:
 
 
 class MockEvent:
-    def __init__(self, is_final: bool = True, content=None, output_key=None, output=None):
+    def __init__(self, is_final: bool = True, content=None, output_key=None, output=None, author=None):
         self._is_final = is_final
         self.content = content
         self.output_key = output_key
         self.output = output
+        self.author = author or "mock_agent"
 
     def is_final_response(self):
         return self._is_final
@@ -173,6 +186,22 @@ class MockLlmAgent:
                 "tone": "professional",
                 "word_count": 285,
                 "ats_score": 8
+            },
+            # Markdown Agent Mocks
+            "experience_markdown_agent": {
+                "experience_markdown": "### Senior Software Engineer | Target Corporation\n*Jan 2021 - Aug 2024*\n\n* Led front-end development for 3D asset management platform, driving **>$50M** in new revenue through AI initiatives.\n* Built internal AI platforms using **TypeScript**, **React**, and **Next.js**.\n* Collaborated with product teams to deliver seamless user experiences."
+            },
+            "skills_markdown_agent": {
+                "skills_markdown": "* **Languages**: TypeScript, JavaScript, Python\n* **Frameworks**: React, Next.js, FastAPI\n* **Tools**: Git, Docker, Kubernetes"
+            },
+            "projects_markdown_agent": {
+                "projects_markdown": "**Konjure - Internal Sales Platform**\n* Designed and built comprehensive sales pipeline management tool.\n* Focused on user experience and engagement optimization."
+            },
+            "education_markdown_agent": {
+                "education_markdown": "**B.S. Computer Science** | University of Technology\n*2010 - 2014*"
+            },
+            "summary_markdown_agent": {
+                "summary_markdown": "Senior Software Engineer with **13+ years** of experience building front-end‑leaning full‑stack products using **TypeScript**, **React**, and **Next.js**. Excel at shipping end‑to‑end features and designing clean, usable UIs."
             }
         }
 
@@ -279,5 +308,6 @@ FunctionTool = Mock
 google_search = Mock()
 agent_tool = Mock()
 BuiltInPlanner = MockBuiltInPlanner
+types = mock_genai.types
 
 print("✅ Mock ADK implementation loaded successfully")

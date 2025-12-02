@@ -1,5 +1,5 @@
 from bson import ObjectId
-from fastapi import APIRouter, Body, UploadFile, File, status, HTTPException
+from fastapi import APIRouter, Body, UploadFile, File, Form, status, HTTPException
 from app.features.theme_generator import create_and_save_theme
 from app.schemas.ResumeSchemas import ThemePackage, ResumeResponse  # Import actual schemas
 from app.schemas.CoverLetterSchemas import CoverLetterFull
@@ -8,6 +8,8 @@ from app.crud import crud_theme
 from app.services.designer_pdf import create_designed_pdfs, get_example_theme
 from app.schemas.theme import ThemeSchema, ThemeTemplate, ThemePackageWithTemplates
 from app.schemas.theme_documents import ThemeDoc, ThemePackageDoc
+from app.schemas.triage_schemas import ThemeTriageResponse
+from app.workflows.theme_triage_workflow import execute_theme_triage_workflow
 import uuid
 
 router = APIRouter(prefix="/themes", tags=["themes"])
@@ -150,3 +152,79 @@ async def render_pdfs(
         "message": "PDFs generated" + (" using example theme" if use_example_theme else ""),
         "data": result
     }
+
+
+@router.post("/triage/{theme_id}", response_model=ThemeTriageResponse)
+async def triage_theme(
+    theme_id: str,
+    *,
+    resume_pdf: Optional[UploadFile] = File(default=None),
+    cover_letter_pdf: Optional[UploadFile] = File(default=None),
+    max_retries: int = Form(default=1, ge=0, le=3)
+):
+    """
+    Intelligent theme triage and repair workflow.
+    
+    Uploads a resume and/or cover letter PDF with visual/layout issues, and the system:
+    1. Analyzes the PDF(s) to identify problems
+    2. Maps issues to theme code locations
+    3. Generates fixes for all identified issues
+    4. Updates the theme in the database
+    5. Renders new PDFs to verify fixes
+    6. Optionally retries if issues remain
+    
+    Args:
+        theme_id: ID of the theme package to analyze and fix
+        resume_pdf: Optional resume PDF with issues (at least one PDF required)
+        cover_letter_pdf: Optional cover letter PDF with issues (at least one PDF required)
+        max_retries: Number of retry attempts if verification fails (0-3, default 1)
+    
+    Returns:
+        Summary of issues found, fixes applied, and verification results
+    
+    Example usage:
+        curl -X POST "http://localhost:8000/api/v1/themes/triage/THEME_ID" \
+          -F "resume_pdf=@problem_resume.pdf" \
+          -F "max_retries=2"
+    """
+    
+    try:
+        # Handle FastAPI quirk where empty file fields come as empty strings or have empty filenames
+        # This happens when the form field is present but no file is actually uploaded
+        if resume_pdf:
+            if not hasattr(resume_pdf, 'filename') or not resume_pdf.filename or resume_pdf.filename == "":
+                resume_pdf = None
+        if cover_letter_pdf:
+            if not hasattr(cover_letter_pdf, 'filename') or not cover_letter_pdf.filename or cover_letter_pdf.filename == "":
+                cover_letter_pdf = None
+            
+        # Validate that at least one PDF is provided
+        if not resume_pdf and not cover_letter_pdf:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one PDF (resume_pdf or cover_letter_pdf) must be provided"
+            )
+        
+        # Execute the workflow
+        result = await execute_theme_triage_workflow(
+            theme_id=theme_id,
+            resume_pdf=resume_pdf,
+            cover_letter_pdf=cover_letter_pdf,
+            max_retries=max_retries
+        )
+        
+        # Build response
+        return {
+            "status": 200 if result["success"] else 206,  # 206 = Partial Content (fixes attempted but not verified)
+            "message": (
+                f"Theme triage completed successfully in {result['attempts']} attempt(s)"
+                if result["success"]
+                else f"Theme triage completed with issues remaining after {result['attempts']} attempt(s)"
+            ),
+            "data": result
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Theme triage failed: {str(e)}")

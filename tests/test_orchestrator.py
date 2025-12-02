@@ -81,12 +81,8 @@ def test_session_creation():
     """Test that sessions are created properly"""
     try:
         # Import the session service from the orchestrator
-        try:
-            from google.adk.sessions import InMemorySessionService
-            print("✅ Using real Google ADK session service")
-        except ImportError:
-            from mock_adk import InMemorySessionService
-            print("⚠️ Using mock session service")
+        from app.mocks.mock_adk import InMemorySessionService
+        print("⚠️ Using mock session service")
 
         print("🧪 Testing session creation...")
 
